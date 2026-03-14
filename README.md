@@ -2,6 +2,21 @@
 
 Geister endgame tablebase 
 
+## Typical build flow
+
+```bash
+./install_public_build_deps.sh
+./prepare_seekable_zstd.sh
+./build_public.sh
+```
+
+## Build prerequisites
+
+- `clang++` (or versioned `clang++-NN`) with C++20 modules support
+- BMI2-capable target (`-mbmi2` is enabled by default)
+- seekable-zstd helper objects prepared by `prepare_seekable_zstd.sh`
+- for builder binaries, a working OpenMP setup for your compiler
+
 ## Included components
 
 - `geister_stdio_baseline_player.cpp`
@@ -49,21 +64,6 @@ The public <=8 perfect builder now writes `_obsblk.bin` directly as its runtime 
 By default it does **not** emit `.txt` side files; pass `--write-txt` only when you explicitly want them for debugging or inspection.
 
 The dedicated 9/10 perfect builder consumes <=8 perfect `_obsblk.bin` dependencies directly. Legacy headerless `.bin` files are still accepted as a fallback for compatibility, but they are no longer required.
-
-## Build prerequisites
-
-- `clang++` (or versioned `clang++-NN`) with C++20 modules support
-- BMI2-capable target (`-mbmi2` is enabled by default)
-- seekable-zstd helper objects prepared by `prepare_seekable_zstd.sh`
-- for builder binaries, a working OpenMP setup for your compiler
-
-## Typical build flow
-
-```bash
-./install_public_build_deps.sh
-./prepare_seekable_zstd.sh
-./build_public.sh
-```
 
 ## Builder dependency graph
 
