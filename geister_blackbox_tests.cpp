@@ -14,9 +14,6 @@ import geister_rank;
 import geister_rank_triplet;
 #endif
 
-// ------------------------------------------------------------
-//  board(36マス)の単一ビット一覧を作る（乱数局面生成用）
-// ------------------------------------------------------------
 consteval auto make_board_bits36() {
 	std::array<uint64_t, 36> bits{};
 	uint64_t m = bb_board;
@@ -31,9 +28,6 @@ consteval auto make_board_bits36() {
 }
 inline constexpr auto BOARD_BITS36 = make_board_bits36();
 
-// ------------------------------------------------------------
-//  disjoint & subset チェック（テスト用）
-// ------------------------------------------------------------
 inline void assert_valid_position(
 	uint64_t bb_player_blue, uint64_t bb_player_red,
 	uint64_t bb_opponent_blue, uint64_t bb_opponent_red)
@@ -51,9 +45,6 @@ inline void assert_valid_position(
 	if ((bb_opponent_blue & bb_opponent_red) != 0) throw std::exception{};
 }
 
-// ------------------------------------------------------------
-//  乱数で disjoint な bitboard4つを作る
-// ------------------------------------------------------------
 inline std::array<uint64_t, 4> make_random_geister_position(
 	std::mt19937_64& rng,
 	int pop_pb, int pop_pr, int pop_ob, int pop_or)
