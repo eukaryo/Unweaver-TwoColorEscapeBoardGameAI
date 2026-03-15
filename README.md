@@ -8,7 +8,7 @@ https://huggingface.co/datasets/ubiquitin/unweaver-tablebase
 
 ## Typical build workflow
 
-### Linux (including build scripts and game AI):
+### Linux (including tablebase construction scripts and game AI):
 
 ```bash
 ./install_public_build_deps.sh
@@ -33,6 +33,8 @@ https://huggingface.co/datasets/ubiquitin/unweaver-tablebase
 - BMI2-capable target (`-mbmi2` is enabled by default)
 - seekable-zstd helper objects prepared by `prepare_seekable_zstd.sh`
 - for builder binaries, a working OpenMP setup for your compiler
+
+Constructing tablebase can be performed on computers with 128GB of main memory.
 
 ## Build script behavior
 
