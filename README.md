@@ -8,7 +8,7 @@ https://huggingface.co/datasets/ubiquitin/unweaver-tablebase
 
 ## Typical build workflow
 
-### Linux (including tablebase construction scripts and game AI):
+### Linux (including tablebase construction scripts and a game AI):
 
 ```bash
 ./install_public_build_deps.sh
@@ -18,7 +18,7 @@ https://huggingface.co/datasets/ubiquitin/unweaver-tablebase
 
 - Run `./run_public_tb_pipeline.sh` to generate the tablebase
 
-### Windows (only for game AI):
+### Windows (only for a game AI):
 
 - Install Visual Studio
 
