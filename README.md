@@ -2,9 +2,13 @@
 
 Geister endgame tablebase 
 
-## Typical build flow
+### The tablebase can be downloaded from the following location:
 
-### Linux:
+https://huggingface.co/datasets/ubiquitin/unweaver-tablebase
+
+## Typical build workflow
+
+### Linux (including build scripts and game AI):
 
 ```bash
 ./install_public_build_deps.sh
@@ -12,11 +16,11 @@ Geister endgame tablebase
 ./build_public.sh
 ```
 
-- `./run_public_tb_pipeline.sh` to make the tablebase
+- Run `./run_public_tb_pipeline.sh` to generate the tablebase
 
-### Windows:
+### Windows (only for game AI):
 
-- install Visual Studio
+- Install Visual Studio
 
 ```bash
 .\prepare_seekable_zstd.cmd
