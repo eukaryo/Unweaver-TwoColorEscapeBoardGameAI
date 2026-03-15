@@ -12,6 +12,8 @@ Geister endgame tablebase
 ./build_public.sh
 ```
 
+- `./run_public_tb_pipeline.sh` to make the tablebase
+
 ### Windows:
 
 - install Visual Studio
