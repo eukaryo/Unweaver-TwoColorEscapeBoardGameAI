@@ -13,7 +13,7 @@ set -euo pipefail
 # compiler (preferring clang / versioned clang) and allows optional CLI
 # overrides.
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 BUILD_DIR="${ROOT_DIR}/build"
 TP_DIR="${ROOT_DIR}/third_party"
 ZSTD_DIR="${TP_DIR}/zstd"
@@ -22,8 +22,10 @@ ZSTD_REF='v1.5.7'
 CC_BIN=''
 CLEAN=0
 
-log() { printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*" >&2; }
-die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+log() { printf '[%s] %s
+' "$(date '+%H:%M:%S')" "$*" >&2; }
+die() { printf 'Error: %s
+' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
@@ -31,7 +33,7 @@ usage() {
 Usage: ./prepare_seekable_zstd.sh [options]
 
 Options:
-  --ref TAG        zstd git tag / ref to checkout (default: v1.5.7)
+  --ref TAG        zstd git tag / ref to checkout exactly (default: v1.5.7)
   --cc PATH        C compiler for zstdseek_decompress.c (auto-detect if omitted)
   --clean          Remove generated seekable-zstd artifacts before rebuilding
   -h, --help       Show this help
@@ -78,14 +80,16 @@ best_versioned_cmd() {
 
 resolve_clang_c() {
   if [[ -n "$CC_BIN" ]]; then
-    printf '%s\n' "$CC_BIN"
+    printf '%s
+' "$CC_BIN"
     return 0
   fi
   if have clang; then command -v clang; return 0; fi
   local c=''
   c="$(best_versioned_cmd 'clang' || true)"
   if [[ -n "$c" ]]; then
-    printf '%s\n' "$c"
+    printf '%s
+' "$c"
     return 0
   fi
   return 1
@@ -110,6 +114,7 @@ pick_make() {
 
 clean_outputs() {
   rm -f "${BUILD_DIR}/zstdseek_decompress.o"
+  rm -f "${ZSTD_DIR}/lib/libzstd.a"
 }
 
 ensure_tools() {
@@ -124,29 +129,49 @@ ensure_tools() {
   log "Using make: ${make_bin}"
 }
 
+require_resolved_ref() {
+  local repo_dir="$1"
+  local ref="$2"
+  git -C "$repo_dir" rev-parse --verify "${ref}^{commit}" >/dev/null 2>&1 ||     die "requested zstd ref is not available locally: ${ref}"
+}
+
+checkout_exact_ref() {
+  local repo_dir="$1"
+  local ref="$2"
+  local want have
+
+  require_resolved_ref "$repo_dir" "$ref"
+  want="$(git -C "$repo_dir" rev-parse --verify "${ref}^{commit}")"
+  git -C "$repo_dir" checkout -q "$want" || die "failed to checkout zstd ref: ${ref}"
+  have="$(git -C "$repo_dir" rev-parse --verify HEAD)"
+  [[ "$have" == "$want" ]] || die "checked out zstd commit ${have}, expected ${want} for ref ${ref}"
+  log "Pinned zstd to ${ref} (${have})"
+}
+
 clone_or_update_zstd() {
   mkdir -p "${TP_DIR}"
+
+  if [[ -e "${ZSTD_DIR}" && ! -d "${ZSTD_DIR}" ]]; then
+    die "path exists but is not a directory: ${ZSTD_DIR}"
+  fi
+
   if [[ -d "${ZSTD_DIR}/.git" ]]; then
     log "Updating existing zstd repo: ${ZSTD_DIR}"
     (
       cd "${ZSTD_DIR}"
-      git fetch --tags --quiet || true
-      git checkout -q "${ZSTD_REF}" || log "Warning: checkout ${ZSTD_REF} failed; using current commit."
+      git fetch --tags --quiet || log "Warning: git fetch --tags failed; continuing with local refs only."
     )
+    checkout_exact_ref "${ZSTD_DIR}" "${ZSTD_REF}"
     return
   fi
 
   if [[ -d "${ZSTD_DIR}" ]]; then
-    log "Using existing zstd source tree: ${ZSTD_DIR}"
-    return
+    die "existing ${ZSTD_DIR} is not a git checkout. Remove it and rerun so the script can clone the pinned zstd ref."
   fi
 
   log "Cloning zstd into ${ZSTD_DIR} ..."
-  git clone https://github.com/facebook/zstd.git "${ZSTD_DIR}"
-  (
-    cd "${ZSTD_DIR}"
-    git checkout -q "${ZSTD_REF}" || log "Warning: checkout ${ZSTD_REF} failed; using current commit."
-  )
+  git clone https://github.com/facebook/zstd.git "${ZSTD_DIR}" || die "failed to clone zstd into ${ZSTD_DIR}"
+  checkout_exact_ref "${ZSTD_DIR}" "${ZSTD_REF}"
 }
 
 build_zstd_static_lib() {
@@ -166,6 +191,9 @@ build_zstd_static_lib() {
 build_seekable_decompress_obj() {
   mkdir -p "${BUILD_DIR}"
 
+  local src="${ZSTD_DIR}/contrib/seekable_format/zstdseek_decompress.c"
+  [[ -f "${src}" ]] || die "missing seekable decoder source: ${src}"
+
   local cflags_common=(
     -O3 -DNDEBUG
     -I"${ZSTD_DIR}/contrib/seekable_format"
@@ -175,9 +203,7 @@ build_seekable_decompress_obj() {
   )
 
   log "Compiling seekable_format decoder object: ${BUILD_DIR}/zstdseek_decompress.o"
-  "${CC_BIN}" "${cflags_common[@]}" \
-    -c "${ZSTD_DIR}/contrib/seekable_format/zstdseek_decompress.c" \
-    -o "${BUILD_DIR}/zstdseek_decompress.o"
+  "${CC_BIN}" "${cflags_common[@]}"     -c "${src}"     -o "${BUILD_DIR}/zstdseek_decompress.o"
 
   [[ -f "${BUILD_DIR}/zstdseek_decompress.o" ]] || die "failed to produce ${BUILD_DIR}/zstdseek_decompress.o"
 }
@@ -193,9 +219,10 @@ main() {
 
   echo
   echo 'OK: seekable-zstd deps are ready.'
-  echo "  C compiler:       ${CC_BIN}"
-  echo "  ZSTD seekable obj: ${BUILD_DIR}/zstdseek_decompress.o"
-  echo "  ZSTD static lib:   ${ZSTD_DIR}/lib/libzstd.a"
+  echo "  C compiler:         ${CC_BIN}"
+  echo "  zstd ref:           ${ZSTD_REF}"
+  echo "  ZSTD seekable obj:  ${BUILD_DIR}/zstdseek_decompress.o"
+  echo "  ZSTD static lib:    ${ZSTD_DIR}/lib/libzstd.a"
   echo
   echo 'Next: run ./build_public.sh all'
 }
