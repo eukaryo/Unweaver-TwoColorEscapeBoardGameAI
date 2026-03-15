@@ -4,10 +4,21 @@ Geister endgame tablebase
 
 ## Typical build flow
 
+Linux:
+
 ```bash
 ./install_public_build_deps.sh
 ./prepare_seekable_zstd.sh
 ./build_public.sh
+```
+
+Windows:
+
+- install Visual Studio
+
+```bash
+.\prepare_seekable_zstd.cmd
+.\build_windows_baseline_player.cmd
 ```
 
 ## Build prerequisites
