@@ -4,7 +4,7 @@ Geister endgame tablebase
 
 ## Typical build flow
 
-Linux:
+### Linux:
 
 ```bash
 ./install_public_build_deps.sh
@@ -12,7 +12,7 @@ Linux:
 ./build_public.sh
 ```
 
-Windows:
+### Windows:
 
 - install Visual Studio
 
