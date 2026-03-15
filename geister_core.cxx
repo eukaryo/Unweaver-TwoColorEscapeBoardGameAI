@@ -9,11 +9,6 @@ module;
 
 export module geister_core;
 
-// -----------------------------------------------------------------------------
-// Public API (Phase-1 extraction from geister.cpp)
-//   - Declarations only (definitions live in the private module fragment)
-// -----------------------------------------------------------------------------
-
 export enum POSITIONS {
 	A1 = 8 * 1 + 1, B1, C1, D1, E1, F1,
 	A2 = 8 * 2 + 1, B2, C2, D2, E2, F2,
@@ -78,10 +73,6 @@ export struct perfect_information_geister {
 };
 
 module:private;
-
-// -----------------------------------------------------------------------------
-// Implementations
-// -----------------------------------------------------------------------------
 
 [[nodiscard]] std::uint64_t bit_reverse64(std::uint64_t x) noexcept {
 	// Portable bit-reversal (byte/word swaps).
