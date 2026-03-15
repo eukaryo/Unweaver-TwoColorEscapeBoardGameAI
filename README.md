@@ -28,12 +28,18 @@ Geister endgame tablebase
 - seekable-zstd helper objects prepared by `prepare_seekable_zstd.sh`
 - for builder binaries, a working OpenMP setup for your compiler
 
+## Build script behavior
+
+- `./build_public.sh` now defaults to host-optimized binaries (`-march=native -mtune=native -mbmi2 -mbmi`) so the no-option path aims for the fastest output on the current machine.
+- Use `./build_public.sh --portable` when you want to drop `-march/-mtune=native` while still keeping BMI2 enabled.
+- LTO is auto-detected. When the local toolchain can link `-flto`, the script uses it; otherwise it automatically falls back to a non-LTO build. Use `--lto` to require it or `--no-lto` to disable it.
+
 ## Included components
 
 - `geister_stdio_baseline_player.cpp`
   - stdio player for match servers
   - starts perfect-information tablebase preload immediately at process startup
-  - if `confident_player()` returns a non-empty `vector<move>`, it chooses uniformly at random among those best moves
+  - if `confident_player()` returns a non-empty `vector<move>`, it chooses one of those best moves with a position-derived pseudo-random tie-break (same position => same choice)
   - otherwise it falls back to `random_player()`
   - usage: `./geister_stdio_baseline_player [TB_DIR]`
     - if `TB_DIR` is omitted, only the current directory is scanned

@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
 usage() {
   cat <<'USAGE'
 Usage: ./run_public_tb_pipeline.sh [options]
 
 Build/run order encoded by this script:
-  0) blackbox tests                       (geister_blackbox_tests)
-  1) <=8 perfect-information TBs          (geister_perfect_information_tb)
-  2) 9/10 perfect-information partitioned (geister_perfect_information_tb_9_10)
-  3) 9/10 perfect obsblk repack           (geister_perfect_information_tb_9_10_repack_obsblk)
+  0) blackbox tests                         (geister_blackbox_tests)
+  1) <=8 perfect-information TBs            (geister_perfect_information_tb)
+  2) 9/10 perfect-information partitioned   (geister_perfect_information_tb_9_10)
+  3) 9/10 perfect obsblk repack             (geister_perfect_information_tb_9_10_repack_obsblk)
   4) compress generated *.bin -> *.bin.zst  (optional)
 
 Important:
@@ -25,8 +27,9 @@ Options:
   --perfect-dep-dir DIR      Directory containing <=8 perfect *_obsblk.bin deps for 9/10 perfect build
                              (legacy headerless .bin also accepted; default: same as --out-dir)
   --max-depth N              DTW horizon / final iteration number (default: 210)
-  --compress                 Compress generated *.bin files at the end (default)
+  --compress                 Attempt final compression (default; auto-skips if helper is unavailable)
   --no-compress              Skip final compression
+  --require-compress         Fail instead of skipping when no usable compressor helper is available
   --delete-bin-after-compress
                              Remove raw *.bin after successful compression (default: keep raw *.bin)
   --compressor PATH          Existing seekable-zstd compressor binary to use
@@ -40,11 +43,13 @@ USAGE
 }
 
 log() {
-  printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*" >&2
+  printf '[%s] %s
+' "$(date '+%H:%M:%S')" "$*" >&2
 }
 
 die() {
-  printf 'Error: %s\n' "$*" >&2
+  printf 'Error: %s
+' "$*" >&2
   exit 1
 }
 
@@ -60,7 +65,8 @@ abspath() {
     local dir base
     dir="$(dirname "$p")"
     base="$(basename "$p")"
-    (cd "$dir" && printf '%s/%s\n' "$(pwd -P)" "$base")
+    (cd "$dir" && printf '%s/%s
+' "$(pwd -P)" "$base")
   fi
 }
 
@@ -77,7 +83,8 @@ cpu_jobs() {
 resolve_exec_path() {
   local candidate="$1"
   if [[ -x "$candidate" ]]; then
-    printf '%s\n' "$candidate"
+    printf '%s
+' "$candidate"
     return 0
   fi
   if have "$candidate"; then
@@ -92,6 +99,7 @@ OUT_DIR="$(pwd -P)/tb_out"
 PERFECT_DEP_DIR=""
 MAX_DEPTH=210
 DO_COMPRESS=1
+COMPRESS_REQUIRED=0
 DELETE_RAW_BIN=0
 COMPRESSOR_BIN=""
 COMPRESSOR_SRC=""
@@ -124,6 +132,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-compress)
       DO_COMPRESS=0
+      ;;
+    --require-compress)
+      COMPRESS_REQUIRED=1
       ;;
     --delete-bin-after-compress)
       DELETE_RAW_BIN=1
@@ -241,80 +252,135 @@ check_perfect_deps() {
   fi
 }
 
-# Build or locate the compressor only if compression is requested.
 detect_cxx() {
   if [[ -n "$CXX_OVERRIDE" ]]; then
     if resolved="$(resolve_exec_path "$CXX_OVERRIDE" 2>/dev/null)"; then
-      printf '%s\n' "$resolved"
+      printf '%s
+' "$resolved"
       return 0
     fi
     die "compiler not found: $CXX_OVERRIDE"
   fi
 
   local cxx resolved
-  for cxx in \
-    /usr/lib/llvm-20/bin/clang++ \
-    /usr/bin/clang++-20 \
-    clang++-20 \
-    clang++ \
-    clang++-19 \
-    clang++-18 \
-    clang++-17 \
-    clang++-16 \
-    g++ \
-    g++-14 \
-    g++-13 \
-    g++-12 \
-    g++-11; do
+  for cxx in     /usr/lib/llvm-20/bin/clang++     /usr/bin/clang++-20     clang++-20     clang++     clang++-19     clang++-18     clang++-17     clang++-16     g++     g++-14     g++-13     g++-12     g++-11; do
     if resolved="$(resolve_exec_path "$cxx" 2>/dev/null)"; then
-      printf '%s\n' "$resolved"
+      printf '%s
+' "$resolved"
       return 0
     fi
   done
   return 1
 }
 
-ensure_compressor() {
-  local candidate src cxx outbin
-
+find_existing_compressor_binary() {
+  local candidate
   if [[ -n "$COMPRESSOR_BIN" ]]; then
     [[ -x "$COMPRESSOR_BIN" ]] || die "compressor binary not executable: $COMPRESSOR_BIN"
-    printf '%s\n' "$COMPRESSOR_BIN"
+    printf '%s
+' "$COMPRESSOR_BIN"
     return 0
   fi
 
-  for candidate in \
-    "$REPO_DIR/seekable_zstd_multithread" \
-    "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/seekable_zstd_multithread"; do
+  for candidate in     "$REPO_DIR/seekable_zstd_multithread"     "$SCRIPT_DIR/seekable_zstd_multithread"; do
     if [[ -x "$candidate" ]]; then
-      printf '%s\n' "$candidate"
+      printf '%s
+' "$candidate"
       return 0
     fi
   done
 
+  return 1
+}
+
+find_compressor_source() {
+  local candidate
   if [[ -n "$COMPRESSOR_SRC" ]]; then
-    src="$COMPRESSOR_SRC"
-  else
-    for candidate in \
-      "$REPO_DIR/seekable_zstd_multithread.cpp" \
-      "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/seekable_zstd_multithread.cpp"; do
-      if [[ -f "$candidate" ]]; then
-        src="$candidate"
-        break
-      fi
-    done
+    [[ -f "$COMPRESSOR_SRC" ]] || die "compressor source not found: $COMPRESSOR_SRC"
+    printf '%s
+' "$COMPRESSOR_SRC"
+    return 0
   fi
 
-  [[ -n "${src:-}" ]] || die "compression requested, but no compressor binary/source found. Provide --compressor or --compressor-src."
+  for candidate in     "$REPO_DIR/seekable_zstd_multithread.cpp"     "$SCRIPT_DIR/seekable_zstd_multithread.cpp"; do
+    if [[ -f "$candidate" ]]; then
+      printf '%s
+' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+build_compressor_from_source() {
+  local src="$1"
+  local cxx="$2"
+  local outbin="$REPO_DIR/seekable_zstd_multithread"
+
+  log "building compressor: $outbin"
+  "$cxx" -std=c++20 -O3 -DNDEBUG -pthread "$src" -lzstd -o "$outbin" || return 1
+  [[ -x "$outbin" ]] || return 1
+  printf '%s
+' "$outbin"
+  return 0
+}
+
+ensure_compressor_strict() {
+  local existing src cxx built
+
+  if existing="$(find_existing_compressor_binary 2>/dev/null)"; then
+    printf '%s
+' "$existing"
+    return 0
+  fi
+
+  src="$(find_compressor_source 2>/dev/null || true)"
+  [[ -n "${src:-}" ]] || die "compression required, but no compressor binary/source found. Provide --compressor or --compressor-src."
 
   cxx="$(detect_cxx || true)"
   [[ -n "$cxx" ]] || die "failed to detect a C++ compiler for building the compressor"
 
-  outbin="$REPO_DIR/seekable_zstd_multithread"
-  log "building compressor: $outbin"
-  "$cxx" -std=c++20 -O3 -DNDEBUG -pthread "$src" -lzstd -o "$outbin"
-  [[ -x "$outbin" ]] || die "failed to build compressor: $outbin"
-  printf '%s\n' "$outbin"
+  built="$(build_compressor_from_source "$src" "$cxx" || true)"
+  [[ -n "$built" && -x "$built" ]] || die "failed to build compressor from source: $src"
+  printf '%s
+' "$built"
+}
+
+maybe_prepare_compressor() {
+  local existing src cxx built
+
+  if [[ -n "$COMPRESSOR_BIN" || -n "$COMPRESSOR_SRC" || "$COMPRESS_REQUIRED" -eq 1 ]]; then
+    ensure_compressor_strict
+    return 0
+  fi
+
+  if existing="$(find_existing_compressor_binary 2>/dev/null)"; then
+    printf '%s
+' "$existing"
+    return 0
+  fi
+
+  src="$(find_compressor_source 2>/dev/null || true)"
+  if [[ -z "${src:-}" ]]; then
+    return 1
+  fi
+
+  cxx="$(detect_cxx || true)"
+  if [[ -z "$cxx" ]]; then
+    log "compression helper source found, but no C++ compiler is available; skipping final compression"
+    return 1
+  fi
+
+  built="$(build_compressor_from_source "$src" "$cxx" || true)"
+  if [[ -n "$built" && -x "$built" ]]; then
+    printf '%s
+' "$built"
+    return 0
+  fi
+
+  log "failed to build compression helper from $src; skipping final compression"
+  return 1
 }
 
 run_cmd() {
@@ -330,6 +396,10 @@ run_cmd_in_dir() {
     cd "$dir"
     "$@"
   )
+}
+
+has_raw_bins() {
+  find "$OUT_DIR" -type f -name '*.bin' ! -name '*.bin.zst' ! -name '*.bin.zstd' -print -quit | grep -q .
 }
 
 compress_bins_tree() {
@@ -379,9 +449,16 @@ run_cmd "$PERFECT_9_10_REPACK_BIN" --in "$OUT_DIR" --out "$OUT_DIR" --iter "$MAX
 
 # 4) Optional final compression of generated raw *.bin files.
 if (( DO_COMPRESS )); then
-  COMPRESSOR_BIN_REAL="$(ensure_compressor)"
-  log "compressor=$COMPRESSOR_BIN_REAL"
-  compress_bins_tree "$COMPRESSOR_BIN_REAL"
+  if has_raw_bins; then
+    if COMPRESSOR_BIN_REAL="$(maybe_prepare_compressor)"; then
+      log "compressor=$COMPRESSOR_BIN_REAL"
+      compress_bins_tree "$COMPRESSOR_BIN_REAL"
+    else
+      log "compression helper unavailable; skipping final compression and keeping raw *.bin files"
+    fi
+  else
+    log "no raw *.bin files found; compression skipped"
+  fi
 else
   log "compression skipped (--no-compress)"
 fi
