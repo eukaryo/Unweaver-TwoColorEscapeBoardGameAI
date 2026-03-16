@@ -56,21 +56,21 @@ export namespace tbio {
 	//  Hex-lines text format (.txt)
 	// ============================================================
 
-	// ファイルサイズが expected_entries * (3 or 4) に一致するかをざっくり検査。
+	// Roughly check whether the file size matches expected_entries * (3 or 4).
 	//   - 3 bytes/entry: "xx\n"
 	//   - 4 bytes/entry: "xx\r\n"
 	[[nodiscard]] bool tablebase_file_looks_valid(
 		const std::filesystem::path& filename,
 		std::uint64_t expected_entries) noexcept;
 
-	// "xx\n" or "xx\r\n" を読み込んで vector<uint8_t> にする（値が max_value を超えたら例外）。
+	// Read "xx\n" or "xx\r\n" into a vector<uint8_t> (throw if a value exceeds max_value).
 	[[nodiscard]] std::vector<std::uint8_t> load_tablebase_hex_lines_streaming(
 		const std::filesystem::path& filename,
 		std::uint64_t expected_entries,
 		std::uint8_t max_value = 210);
 
-	// vector<uint8_t> を "xx\n" (LF固定) で書き出す（バイナリモード）。
-	//  - 破損ファイルを残しにくくするため、filename.tmp に書いてから rename で置換する。
+	// Write vector<uint8_t> as "xx\n" (LF only) in binary mode.
+	//  - To avoid leaving a corrupted file, write to filename.tmp first and then replace via rename.
 	void write_tablebase_hex_lines_streaming(
 		const std::vector<std::uint8_t>& tb,
 		const std::filesystem::path& filename);
@@ -79,19 +79,19 @@ export namespace tbio {
 	//  Raw binary format (.bin) : 1 byte/entry (headerless)
 	// ============================================================
 
-	// ファイルサイズが expected_entries に一致するか（= 1 byte/entry）を検査。
+	// Check whether the file size matches expected_entries (= 1 byte/entry).
 	[[nodiscard]] bool tablebase_bin_looks_valid(
 		const std::filesystem::path& filename,
 		std::uint64_t expected_entries) noexcept;
 
-	// .bin を読み込んで vector<uint8_t> にする（値が max_value を超えたら例外）。
+	// Read .bin into a vector<uint8_t> (throw if a value exceeds max_value).
 	[[nodiscard]] std::vector<std::uint8_t> load_tablebase_bin_streaming(
 		const std::filesystem::path& filename,
 		std::uint64_t expected_entries,
 		std::uint8_t max_value = 210);
 
-	// vector<uint8_t> を .bin として書き出す（1 byte/entry）。
-	//  - 破損ファイルを残しにくくするため、filename.tmp に書いてから rename で置換する。
+	// Write vector<uint8_t> as .bin (1 byte/entry).
+	//  - To avoid leaving a corrupted file, write to filename.tmp first and then replace via rename.
 	void write_tablebase_bin_streaming(
 		const std::vector<std::uint8_t>& tb,
 		const std::filesystem::path& filename);
@@ -100,7 +100,7 @@ export namespace tbio {
 
 export namespace tbio::mmap {
 
-	// madvise 相当。best-effort。
+	// madvise equivalent. Best-effort.
 	enum class advice : std::uint8_t {
 		none = 0,
 		normal,
