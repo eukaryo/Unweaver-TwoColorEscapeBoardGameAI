@@ -280,7 +280,7 @@ std::optional<std::vector<move>> confident_player(
 				if (v < e.lose_dtw_min) e.lose_dtw_min = v;
 			}
 			else {
-				// side-to-move (opponent) sure-loss => we sure-win (certain victory)
+				// side-to-move (opponent) sure-loss => we sure-win
 				++e.win_patterns;
 				if (v > e.win_dtw_max) e.win_dtw_max = v;
 			}
