@@ -33,6 +33,10 @@ export struct board_observation {
 
 // A protocol-level move representation.
 //
+// This is the observation/public-information boundary type used by the stdio
+// player and the observation-side policy modules. `geister_core::move` remains
+// the internal on-board move type used by perfect-information code.
+//
 // We intentionally model the two escape moves explicitly in the same shape as
 // normal moves:
 //   - (from = A1, dir = LEFT)

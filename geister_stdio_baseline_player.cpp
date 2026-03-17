@@ -106,7 +106,7 @@ struct parsed_turn {
 	return true;
 }
 
-[[nodiscard]] inline std::string direction_to_protocol_string(const std::uint64_t dir) {
+[[nodiscard]] inline std::string direction_to_protocol_string(const std::uint8_t dir) {
 	switch (dir & 3ULL) {
 	case DIRECTIONS::UP: return "NORTH";
 	case DIRECTIONS::DOWN: return "SOUTH";
@@ -152,16 +152,14 @@ struct parsed_turn {
 	return '?';
 }
 
-[[nodiscard]] inline std::optional<std::string> maybe_escape_move(const parsed_turn& st) {
+[[nodiscard]] inline std::optional<protocol_move> maybe_escape_move(const parsed_turn& st) {
 	const std::uint8_t a1 = static_cast<std::uint8_t>(POSITIONS::A1);
 	const std::uint8_t f1 = static_cast<std::uint8_t>(POSITIONS::F1);
 	if ((st.obs.bb_my_blue & (1ULL << a1)) != 0ULL) {
-		const char p = find_my_piece_on_square(st, a1);
-		if (p != '?') return format_mov(p, "WEST");
+		return protocol_move(a1, static_cast<std::uint8_t>(DIRECTIONS::LEFT));
 	}
 	if ((st.obs.bb_my_blue & (1ULL << f1)) != 0ULL) {
-		const char p = find_my_piece_on_square(st, f1);
-		if (p != '?') return format_mov(p, "EAST");
+		return protocol_move(f1, static_cast<std::uint8_t>(DIRECTIONS::RIGHT));
 	}
 	return std::nullopt;
 }
@@ -183,15 +181,23 @@ struct parsed_turn {
 	return s;
 }
 
-[[nodiscard]] inline move choose_random_best_move(const std::vector<move>& best, const parsed_turn& st) {
-	if (best.empty()) return move{};
+[[nodiscard]] inline protocol_move choose_random_best_move(const std::vector<protocol_move>& best, const parsed_turn& st) {
+	if (best.empty()) return protocol_move{};
 	std::uint64_t state = default_seed_from_position(st);
 	const std::uint64_t r = splitmix64_next(state);
 	return best[static_cast<std::size_t>(r % best.size())];
 }
 
+[[nodiscard]] inline std::string format_protocol_move(const parsed_turn& st, const protocol_move pm) {
+	const char piece_code = find_my_piece_on_square(st, pm.from);
+	const std::string dir = direction_to_protocol_string(pm.dir);
+	return format_mov((piece_code != '?' ? piece_code : 'A'), dir);
+}
+
 [[nodiscard]] inline std::string decide_move_response(const parsed_turn& st) {
-	if (auto esc = maybe_escape_move(st)) return *esc;
+	if (const auto esc = maybe_escape_move(st)) {
+		return format_protocol_move(st, *esc);
+	}
 
 	const std::uint64_t seed = default_seed_from_position(st);
 
@@ -202,10 +208,7 @@ struct parsed_turn {
 		static_cast<int>(st.obs.pop_captured_opponent_red),
 		seed))
 	{
-		const std::uint8_t from = static_cast<std::uint8_t>(proven->get_from());
-		const char piece_code = find_my_piece_on_square(st, from);
-		const std::string dir = direction_to_protocol_string(proven->get_direction());
-		return format_mov((piece_code != '?' ? piece_code : 'A'), dir);
+		return format_protocol_move(st, *proven);
 	}
 
 	if (const auto best = confident_player(
@@ -215,24 +218,17 @@ struct parsed_turn {
 		static_cast<int>(st.obs.pop_captured_opponent_red)))
 	{
 		if (!best->empty()) {
-			const move m = choose_random_best_move(*best, st);
-			const std::uint8_t from = static_cast<std::uint8_t>(m.get_from());
-			const char piece_code = find_my_piece_on_square(st, from);
-			const std::string dir = direction_to_protocol_string(m.get_direction());
-			return format_mov((piece_code != '?' ? piece_code : 'A'), dir);
+			return format_protocol_move(st, choose_random_best_move(*best, st));
 		}
 	}
 
-	const move m = random_player(
+	const protocol_move m = random_player(
 		st.obs.bb_my_blue,
 		st.obs.bb_my_red,
 		st.obs.bb_opponent_unknown,
 		static_cast<int>(st.obs.pop_captured_opponent_red));
 
-	const std::uint8_t from = static_cast<std::uint8_t>(m.get_from());
-	const char piece_code = find_my_piece_on_square(st, from);
-	const std::string dir = direction_to_protocol_string(m.get_direction());
-	return format_mov((piece_code != '?' ? piece_code : 'A'), dir);
+	return format_protocol_move(st, m);
 }
 
 [[nodiscard]] inline std::optional<std::string> extract_mov_payload(std::string_view line) {

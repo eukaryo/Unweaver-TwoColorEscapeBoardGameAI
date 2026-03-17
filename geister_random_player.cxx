@@ -19,15 +19,15 @@ import geister_interface;
 //
 // Contract:
 //   - Inputs are a board-observation snapshot from the side-to-move POV.
-//   - The returned move is always an on-board move (never an escape move).
-//   - Capture flags inside geister_core::move are always zero.
+//   - The returned value is always an on-board `protocol_move` (never an escape
+//     move).
 //   - The caller is responsible for terminal checks (including escape).
 //
 // rng_seed:
 //   - If rng_seed != 0, it is used as the random seed.
 //   - If rng_seed == 0, a deterministic seed is derived from (bb_my_blue, bb_my_red).
 //     This keeps the default behaviour reproducible.
-export [[nodiscard]] move random_player(
+export [[nodiscard]] protocol_move random_player(
 	std::uint64_t bb_my_blue,
 	std::uint64_t bb_my_red,
 	std::uint64_t bb_opponent_unknown,
@@ -80,7 +80,7 @@ namespace {
 	return s;
 }
 
-[[nodiscard]] inline move pick_random_move(
+[[nodiscard]] inline protocol_move pick_random_move(
 	const std::uint64_t bb_my_blue,
 	const std::uint64_t bb_my_red,
 	std::uint64_t seed) {
@@ -89,20 +89,18 @@ namespace {
 	std::array<move, 32> moves{};
 	const int n = me.gen_moves(/*bb_opponent_red=*/0ULL, /*bb_opponent_blue=*/0ULL, moves);
 	assert(n > 0);
-	if (n <= 0) return move{};
+	if (n <= 0) return protocol_move{};
 
 	std::uint64_t state = seed;
 	const std::uint64_t r = splitmix64_next(state);
 	const int idx = static_cast<int>(r % static_cast<std::uint64_t>(n));
 
-	// Capture flags are intentionally zero, since opponent colors are unknown.
-	moves[idx].m &= static_cast<std::uint16_t>(~(CAPTURE_RED_FLAG | CAPTURE_BLUE_FLAG));
-	return moves[idx];
+	return to_protocol_move(moves[idx]);
 }
 
 } // namespace
 
-move random_player(
+protocol_move random_player(
 	const std::uint64_t bb_my_blue,
 	const std::uint64_t bb_my_red,
 	const std::uint64_t bb_opponent_unknown,
