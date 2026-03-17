@@ -104,7 +104,7 @@ protocol_move random_player(
 	const std::uint64_t bb_my_blue,
 	const std::uint64_t bb_my_red,
 	const std::uint64_t bb_opponent_unknown,
-	const int pop_captured_opponent_red,
+	[[maybe_unused]] const int pop_captured_opponent_red,
 	const std::uint64_t rng_seed)
 {
 	// -------------------------------------------------------------------------
@@ -117,7 +117,7 @@ protocol_move random_player(
 
 	assert(0 <= pop_captured_opponent_red && pop_captured_opponent_red <= 3);
 	const int opp_remaining = static_cast<int>(std::popcount(bb_opponent_unknown));
-	const int opp_captured_total = 8 - opp_remaining;
+	[[maybe_unused]] const int opp_captured_total = 8 - opp_remaining;
 	assert(0 <= opp_remaining && opp_remaining <= 8);
 	assert(0 <= opp_captured_total && opp_captured_total <= 8);
 	assert(pop_captured_opponent_red <= opp_captured_total);

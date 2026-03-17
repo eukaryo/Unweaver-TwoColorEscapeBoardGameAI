@@ -121,7 +121,7 @@ inline constexpr auto COMB = make_comb_table();
 // Here S <= 4 is assumed (Geister piece count constraint).
 // -----------------------------------------------------------------------------
 
-[[nodiscard]] inline std::uint64_t rank_patterns_colex(std::uint64_t x, const int N, const int S) noexcept {
+[[nodiscard]] inline std::uint64_t rank_patterns_colex(std::uint64_t x, [[maybe_unused]] const int N, const int S) noexcept {
 	assert(0 <= S && S <= 4);
 	assert(S <= N && N <= MAXN);
 	assert(std::popcount(x) == S);
@@ -269,7 +269,7 @@ inline void unrank_half4(
 	const std::uint64_t radix_c = COMB[rem2][c];
 	const std::uint64_t radix_d = COMB[rem3][d];
 
-	const std::uint64_t total = COMB[HALF_N][a] * radix_b * radix_c * radix_d;
+	[[maybe_unused]] const std::uint64_t total = COMB[HALF_N][a] * radix_b * radix_c * radix_d;
 	assert(number < total);
 
 	std::uint64_t n = number;
@@ -709,7 +709,7 @@ void unrank_geister_perfect_information(
 	else {
 		assert(WL == WR);
 		const std::uint64_t M = WL;
-		const std::uint64_t total_pairs = M * (M + 1) / 2;
+		[[maybe_unused]] const std::uint64_t total_pairs = M * (M + 1) / 2;
 		assert(r < total_pairs);
 
 		// Find largest i such that offset(i) <= r,
