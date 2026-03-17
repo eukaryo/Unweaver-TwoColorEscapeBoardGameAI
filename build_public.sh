@@ -403,7 +403,8 @@ build_runtime() {
   ensure_seekable_zstd
   clean_runtime_artifacts
 
-  local -a cxxflags=(-std=c++20 -O3 -DNDEBUG "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}" -pthread)
+  local -a warnflags=(-Wall -Wextra -Wpedantic -Wunused-variable)
+  local -a cxxflags=(-std=c++20 -O3 -DNDEBUG "${warnflags[@]}" "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}" -pthread)
   local -a ldflags=(-std=c++20 -O3 -DNDEBUG "${ARCH_FLAGS[@]}" "${LTO_LINK_FLAGS[@]}" -pthread)
   local -a mpath=(-fprebuilt-module-path=.)
 
@@ -453,7 +454,8 @@ build_runtime() {
 build_tests() {
   clean_test_artifacts
 
-  local -a cxxflags=(-std=c++20 -O3 "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}")
+  local -a warnflags=(-Wall -Wextra -Wpedantic -Wunused-variable)
+  local -a cxxflags=(-std=c++20 -O3 "${warnflags[@]}" "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}")
   local -a ldflags=(-std=c++20 -O3 "${ARCH_FLAGS[@]}" "${LTO_LINK_FLAGS[@]}")
   local -a mpath=(-fprebuilt-module-path=.)
 
@@ -491,7 +493,8 @@ build_builders() {
     exit 1
   fi
 
-  local -a cxxflags=(-std=c++20 -O3 -DNDEBUG "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}" "${OMP_COMPILE_FLAGS[@]}")
+  local -a warnflags=(-Wall -Wextra -Wpedantic -Wunused-variable)
+  local -a cxxflags=(-std=c++20 -O3 -DNDEBUG "${warnflags[@]}" "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}" "${OMP_COMPILE_FLAGS[@]}")
   local -a ldflags=(-std=c++20 -O3 -DNDEBUG "${ARCH_FLAGS[@]}" "${LTO_LINK_FLAGS[@]}" "${OMP_LINK_FLAGS[@]}")
   local -a mpath=(-fprebuilt-module-path=.)
 

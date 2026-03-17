@@ -79,7 +79,7 @@ module:private;
 namespace {
 
 // 6x6 board embedded in 8x8 (same as other modules).
-inline constexpr std::uint64_t bb_board = 0x007E'7E7E'7E7E'7E7E'00ULL;
+[[maybe_unused]] inline constexpr std::uint64_t bb_board = 0x007E'7E7E'7E7E'7E7E'00ULL;
 
 // -----------------------------------------------------------------------------
 // Small nCk table for n<=8 (enough for k=ob+or<=8).
@@ -143,7 +143,7 @@ inline constexpr auto REV8 = make_rev8_table();
 // Colex ranking for k-bit patterns of weight S (S<=4, k<=8).
 // -----------------------------------------------------------------------------
 
-[[nodiscard]] inline std::uint64_t rank_patterns_colex(std::uint64_t x, int k, int S) noexcept {
+[[nodiscard]] inline std::uint64_t rank_patterns_colex(std::uint64_t x, [[maybe_unused]] int k, int S) noexcept {
 	assert(0 <= k && k <= MAXN);
 	assert(0 <= S && S <= 4);
 	assert(S <= k);
@@ -294,7 +294,7 @@ void unrank_geister_perfect_information_obsblk(
 	assert(2 <= k && k <= 8);
 
 	const std::uint64_t inner_domain = comb_small(k, pop_or);
-	const std::uint64_t outer_domain = states_for_counts(
+	[[maybe_unused]] const std::uint64_t outer_domain = states_for_counts(
 		static_cast<std::uint8_t>(pop_pb),
 		static_cast<std::uint8_t>(pop_pr),
 		static_cast<std::uint8_t>(k));

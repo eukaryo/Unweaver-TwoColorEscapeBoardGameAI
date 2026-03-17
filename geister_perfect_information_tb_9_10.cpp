@@ -595,7 +595,7 @@ static MaterialSpec make_material(MatKind k) {
     return m;
 }
 
-[[nodiscard]] static MatKind swap_kind(MatKind k) {
+[[maybe_unused]] [[nodiscard]] static MatKind swap_kind(MatKind k) {
     switch (k) {
     case MatKind::M9A: return MatKind::M9B;
     case MatKind::M9B: return MatKind::M9A;
@@ -1103,7 +1103,7 @@ static LowerDep load_lower_dep_bin(const fs::path& dep_dir, const Count4& c) {
 // Load partition table for previous iteration
 // ============================================================
 
-static std::vector<std::uint8_t> load_partition_table_prev(
+[[maybe_unused]] static std::vector<std::uint8_t> load_partition_table_prev(
     const fs::path& root,
     const MaterialSpec& mat,
     const int prev_iter,

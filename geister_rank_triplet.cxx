@@ -184,7 +184,7 @@ inline constexpr auto REV8 = make_rev8_table();
 // -----------------------------------------------------------------------------
 //  Colex ranking for bit patterns of size P with S set bits
 // -----------------------------------------------------------------------------
-[[nodiscard]] inline std::uint64_t rank_patterns_colex(std::uint64_t x, int P, int S) noexcept {
+[[nodiscard]] inline std::uint64_t rank_patterns_colex(std::uint64_t x, [[maybe_unused]] int P, int S) noexcept {
 	assert(P >= 0 && P <= kHalfN);
 	assert(S >= 0 && S <= P);
 	if (S == 0) return 0;
@@ -282,7 +282,7 @@ inline void unrank_half3(
 	const int rem2 = rem1 - b;
 	const std::uint64_t radix_b = COMB[rem1][b];
 	const std::uint64_t radix_c = COMB[rem2][c];
-	const std::uint64_t total = COMB[kHalfN][a] * radix_b * radix_c;
+	[[maybe_unused]] const std::uint64_t total = COMB[kHalfN][a] * radix_b * radix_c;
 	assert(number < total);
 
 	std::uint64_t n = number;
@@ -408,7 +408,7 @@ inline void fill_all_canon_meta(std::array<CanonMeta3, kSplitDomain>& out) noexc
 
 inline void tri_unrank(std::uint64_t r, std::uint64_t M, std::uint64_t& i, std::uint64_t& j) noexcept {
 	assert(M > 0);
-	const std::uint64_t total_pairs = M * (M + 1) / 2;
+	[[maybe_unused]] const std::uint64_t total_pairs = M * (M + 1) / 2;
 	assert(r < total_pairs);
 
 	// Find largest i such that offset(i) <= r,
