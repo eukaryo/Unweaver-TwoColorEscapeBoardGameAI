@@ -14,6 +14,7 @@
 import geister_core;
 import geister_interface;
 import geister_random_player;
+import geister_proven_escape;
 import confident_player;
 import geister_tb_handler;
 
@@ -191,6 +192,21 @@ struct parsed_turn {
 
 [[nodiscard]] inline std::string decide_move_response(const parsed_turn& st) {
 	if (auto esc = maybe_escape_move(st)) return *esc;
+
+	const std::uint64_t seed = default_seed_from_position(st);
+
+	if (const auto proven = proven_escape_move(
+		st.obs.bb_my_blue,
+		st.obs.bb_my_red,
+		st.obs.bb_opponent_unknown,
+		static_cast<int>(st.obs.pop_captured_opponent_red),
+		seed))
+	{
+		const std::uint8_t from = static_cast<std::uint8_t>(proven->get_from());
+		const char piece_code = find_my_piece_on_square(st, from);
+		const std::string dir = direction_to_protocol_string(proven->get_direction());
+		return format_mov((piece_code != '?' ? piece_code : 'A'), dir);
+	}
 
 	if (const auto best = confident_player(
 		st.obs.bb_my_blue,

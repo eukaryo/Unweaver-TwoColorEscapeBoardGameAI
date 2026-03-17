@@ -114,6 +114,7 @@ function Ensure-RepoLooksRight([string]$Root) {
         'geister_core.cxx',
         'geister_interface.cxx',
         'geister_random_player.cxx',
+        'geister_proven_escape.cxx',
         'confident_player.cxx',
         'geister_rank.cxx',
         'geister_rank_obsblk.cxx',
@@ -180,6 +181,7 @@ function Build-GeisterBaselineExe {
         'tablebase_io.cxx',
         'geister_tb_handler.cxx',
         'geister_random_player.cxx',
+        'geister_proven_escape.cxx',
         'confident_player.cxx'
     )
 
@@ -199,6 +201,7 @@ function Build-GeisterBaselineExe {
         (Join-Path $ObjDir 'tablebase_io.obj'),
         (Join-Path $ObjDir 'geister_tb_handler.obj'),
         (Join-Path $ObjDir 'geister_random_player.obj'),
+        (Join-Path $ObjDir 'geister_proven_escape.obj'),
         (Join-Path $ObjDir 'confident_player.obj'),
         (Join-Path $ObjDir 'geister_stdio_baseline_player.obj')
     )
