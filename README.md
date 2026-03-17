@@ -47,13 +47,18 @@ Constructing tablebase can be performed on computers with 128GB of main memory.
 - `geister_stdio_baseline_player.cpp`
   - stdio player for match servers
   - starts perfect-information tablebase preload immediately at process startup
+  - move-selection order:
+    1. immediate protocol-level escape if a blue piece is already on A1/F1
+    2. `proven_escape_move()` if it can certify a sound escape-race first move
+    3. `confident_player()` if the perfect-information runtime fully covers the position
+    4. otherwise `random_player()`
   - if `confident_player()` returns a non-empty `vector<move>`, it chooses one of those best moves with a position-derived pseudo-random tie-break (same position => same choice)
-  - otherwise it falls back to `random_player()`
   - usage: `./geister_stdio_baseline_player [TB_DIR]`
     - if `TB_DIR` is omitted, only the current directory is scanned
 
 - Runtime modules
   - `geister_tb_handler.cxx`
+  - `geister_proven_escape.cxx`
   - `confident_player.cxx`
   - `tablebase_io.cxx`
   - rank/core/interface modules
@@ -73,6 +78,8 @@ The public runtime handler supports two load paths.
 - `start_background_load()` launches that work in a detached thread.
 
 While background loading is still running, probes behave exactly as if no tablebase were loaded yet and return `std::nullopt`.
+
+`geister_proven_escape.cxx` is a conservative pre-tablebase tactical filter. It tries to certify an on-board first move that guarantees an eventual escape win under an opponent-favoring sufficient condition (false negatives are acceptable; false positives are not). If no move is certified, the caller proceeds to the normal tablebase-backed policy.
 
 `confident_player.cxx` is included as a compact example of how to call the perfect-information tablebase from a game AI that only has public information. It enumerates all opponent colorings consistent with the current observation, probes the 1-ply child positions in the perfect-information runtime, and returns the best fully covered moves. If the runtime is not ready or the position is outside currently loaded perfect-information coverage, it returns `std::nullopt` and lets the caller fall back to another policy.
 
