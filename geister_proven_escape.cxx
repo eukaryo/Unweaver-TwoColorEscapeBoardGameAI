@@ -42,16 +42,14 @@ import geister_interface;
 //       (from the current POV) and then spend one more turn to escape.
 //
 // Returned move:
-//   - always an on-board move (never an escape move)
-//   - capture flags are cleared
+//   - always an on-board `protocol_move` (never an escape move)
 //   - std::nullopt means "no move certified by this sufficient condition"
 //
 // NOTE:
 //   As in geister_random_player, the caller is expected to handle the immediate
 //   terminal/escape case separately. If escape is already available now, the
-//   winning action is the protocol-level escape move, which cannot be expressed
-//   as geister_core::move.
-export [[nodiscard]] std::optional<move> proven_escape_move(
+//   winning action is the protocol-level escape move.
+export [[nodiscard]] std::optional<protocol_move> proven_escape_move(
 	std::uint64_t bb_my_blue,
 	std::uint64_t bb_my_red,
 	std::uint64_t bb_opponent_unknown,
@@ -278,7 +276,7 @@ inline void debug_validate_inputs(
 
 } // namespace
 
-std::optional<move> proven_escape_move(
+std::optional<protocol_move> proven_escape_move(
 	const std::uint64_t bb_my_blue,
 	const std::uint64_t bb_my_red,
 	const std::uint64_t bb_opponent_unknown,
@@ -326,7 +324,7 @@ std::optional<move> proven_escape_move(
 	const int n_moves = me.gen_moves(/*bb_opponent_red=*/0ULL, /*bb_opponent_blue=*/0ULL, moves);
 	if (n_moves <= 0) return std::nullopt;
 
-	std::optional<move> best_move = std::nullopt;
+	std::optional<move> best_core_move = std::nullopt;
 	int best_len = 1'000'000;
 
 	for (int i = 0; i < n_moves; ++i) {
@@ -349,11 +347,12 @@ std::optional<move> proven_escape_move(
 		if (!maybe_len.has_value()) continue;
 
 		const int len = *maybe_len;
-		if (!best_move.has_value() || len < best_len || (len == best_len && m.m < best_move->m)) {
-			best_move = m;
+		if (!best_core_move.has_value() || len < best_len || (len == best_len && m.m < best_core_move->m)) {
+			best_core_move = m;
 			best_len = len;
 		}
 	}
 
-	return best_move;
+	if (!best_core_move.has_value()) return std::nullopt;
+	return to_protocol_move(*best_core_move);
 }

@@ -21,7 +21,7 @@ import geister_tb_handler;
 // Confident player (tablebase-guided example using perfect-information TBs).
 //
 // Signature matches geister_random_player::random_player, except:
-//   - return type is std::optional<std::vector<move>>.
+//   - return type is std::optional<std::vector<protocol_move>>.
 //
 // Behaviour:
 //   (1) Enumerate all opponent colorings consistent with the public observation.
@@ -44,7 +44,7 @@ import geister_tb_handler;
 //   - the perfect-information runtime is not ready yet,
 //   - no legal move exists, or
 //   - no move is fully covered by the currently loaded perfect-information TBs.
-export [[nodiscard]] std::optional<std::vector<move>> confident_player(
+export [[nodiscard]] std::optional<std::vector<protocol_move>> confident_player(
 	std::uint64_t bb_my_blue,
 	std::uint64_t bb_my_red,
 	std::uint64_t bb_opponent_unknown,
@@ -154,7 +154,7 @@ struct perfect_eval {
 // Implementation
 // -----------------------------------------------------------------------------
 
-std::optional<std::vector<move>> confident_player(
+std::optional<std::vector<protocol_move>> confident_player(
 	const std::uint64_t bb_my_blue,
 	const std::uint64_t bb_my_red,
 	const std::uint64_t bb_opponent_unknown,
@@ -311,7 +311,7 @@ std::optional<std::vector<move>> confident_player(
 		if (e->lose_patterns < min_lose) min_lose = e->lose_patterns;
 	}
 
-	std::vector<move> out;
+	std::vector<protocol_move> out;
 
 	if (min_lose != 0) {
 		// (ii-a) No zero-lose move exists.
@@ -324,7 +324,7 @@ std::optional<std::vector<move>> confident_player(
 		for (const auto* e : covered) {
 			if (e->lose_patterns != min_lose) continue;
 			if (e->lose_dtw_min != best_min_dtl) continue;
-			out.push_back(e->m);
+			out.push_back(to_protocol_move(e->m));
 		}
 		return out;
 	}
@@ -340,7 +340,7 @@ std::optional<std::vector<move>> confident_player(
 		// (ii-b) There is a zero-lose move, but all of them have zero win patterns.
 		// Return all fully covered zero-lose moves without further tie-break.
 		for (const auto* e : covered) {
-			if (e->lose_patterns == 0) out.push_back(e->m);
+			if (e->lose_patterns == 0) out.push_back(to_protocol_move(e->m));
 		}
 		return out;
 	}
@@ -358,7 +358,7 @@ std::optional<std::vector<move>> confident_player(
 		if (e->lose_patterns != 0) continue;
 		if (e->win_patterns != max_win) continue;
 		if (e->win_dtw_max != best_max_dtw) continue;
-		out.push_back(e->m);
+		out.push_back(to_protocol_move(e->m));
 	}
 	return out;
 }
