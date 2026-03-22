@@ -371,9 +371,9 @@ ensure_seekable_zstd() {
 clean_runtime_artifacts() {
   rm -f geister_stdio_baseline_player geister_stdio_baseline_player.o \
     geister_core.pcm geister_interface.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm \
-    geister_tb_handler.pcm geister_random_player.pcm geister_proven_escape.pcm confident_player.pcm \
+    geister_tb_handler.pcm geister_random_player.pcm geister_proven_escape.pcm geister_purple_winning.pcm confident_player.pcm \
     geister_core.o geister_interface.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o \
-    geister_tb_handler.o geister_random_player.o geister_proven_escape.o confident_player.o
+    geister_tb_handler.o geister_random_player.o geister_proven_escape.o geister_purple_winning.o confident_player.o
 }
 
 clean_test_artifacts() {
@@ -418,6 +418,7 @@ build_runtime() {
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_tb_handler.cxx -o geister_tb_handler.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_random_player.cxx -o geister_random_player.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_proven_escape.cxx -o geister_proven_escape.pcm
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_purple_winning.cxx -o geister_purple_winning.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile confident_player.cxx -o confident_player.pcm
 
   # 2) Compile object files from the ORIGINAL sources (NOT from .pcm)
@@ -430,6 +431,7 @@ build_runtime() {
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_tb_handler.cxx -o geister_tb_handler.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_random_player.cxx -o geister_random_player.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_proven_escape.cxx -o geister_proven_escape.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_purple_winning.cxx -o geister_purple_winning.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c confident_player.cxx -o confident_player.o
 
   # 3) Compile the stdio baseline player (imports modules via BMIs)
@@ -439,16 +441,16 @@ build_runtime() {
   run_cxx "${ldflags[@]}" \
     geister_stdio_baseline_player.o \
     geister_core.o geister_interface.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o \
-    geister_tb_handler.o geister_random_player.o geister_proven_escape.o confident_player.o \
+    geister_tb_handler.o geister_random_player.o geister_proven_escape.o geister_purple_winning.o confident_player.o \
     "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
     -o geister_stdio_baseline_player
 
   rm -f \
     geister_stdio_baseline_player.o \
     geister_core.pcm geister_interface.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm \
-    geister_tb_handler.pcm geister_random_player.pcm geister_proven_escape.pcm confident_player.pcm \
+    geister_tb_handler.pcm geister_random_player.pcm geister_proven_escape.pcm geister_purple_winning.pcm confident_player.pcm \
     geister_core.o geister_interface.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o \
-    geister_tb_handler.o geister_random_player.o geister_proven_escape.o confident_player.o
+    geister_tb_handler.o geister_random_player.o geister_proven_escape.o geister_purple_winning.o confident_player.o
 }
 
 build_tests() {
