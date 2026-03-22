@@ -21,7 +21,7 @@ Usage: ./build_public.sh [options] [target]
 
 Targets:
   runtime    Build geister_stdio_baseline_player
-  builders   Build perfect-information tablebase builders
+  builders   Build perfect-information and purple tablebase builders
   tests      Build geister_blackbox_tests
   all        Build everything above (default)
   clean      Remove build artifacts produced by this script
@@ -383,10 +383,12 @@ clean_test_artifacts() {
 }
 
 clean_builder_artifacts() {
-  rm -f geister_perfect_information_tb \
+  rm -f geister_perfect_information_tb geister_purple_tb \
     geister_perfect_information_tb_9_10 geister_perfect_information_tb_9_10_repack_obsblk \
-    geister_perfect_information_tb.o \
+    geister_purple_tb_red2 geister_purple_tb_red2_repack \
+    geister_perfect_information_tb.o geister_purple_tb.o \
     geister_perfect_information_tb_9_10.o geister_perfect_information_tb_9_10_repack_obsblk.o \
+    geister_purple_tb_red2.o geister_purple_tb_red2_repack.o \
     geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm \
     geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o
 }
@@ -496,8 +498,8 @@ build_builders() {
   fi
 
   local -a warnflags=(-Wall -Wextra -Wpedantic -Wunused-variable)
-  local -a cxxflags=(-std=c++20 -O3 -DNDEBUG "${warnflags[@]}" "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}" "${OMP_COMPILE_FLAGS[@]}")
-  local -a ldflags=(-std=c++20 -O3 -DNDEBUG "${ARCH_FLAGS[@]}" "${LTO_LINK_FLAGS[@]}" "${OMP_LINK_FLAGS[@]}")
+  local -a cxxflags=(-std=c++20 -O3 -DNDEBUG "${warnflags[@]}" "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}" "${OMP_COMPILE_FLAGS[@]}" -pthread)
+  local -a ldflags=(-std=c++20 -O3 -DNDEBUG "${ARCH_FLAGS[@]}" "${LTO_LINK_FLAGS[@]}" "${OMP_LINK_FLAGS[@]}" -pthread)
   local -a mpath=(-fprebuilt-module-path=.)
 
   # 1) Precompile module interfaces -> .pcm (BMI)
@@ -516,14 +518,22 @@ build_builders() {
 
   # 3) Compile builder translation units (imports modules via BMIs)
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_perfect_information_tb.cpp -o geister_perfect_information_tb.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_purple_tb.cpp -o geister_purple_tb.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_perfect_information_tb_9_10.cpp -o geister_perfect_information_tb_9_10.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_perfect_information_tb_9_10_repack_obsblk.cpp -o geister_perfect_information_tb_9_10_repack_obsblk.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_purple_tb_red2.cpp -o geister_purple_tb_red2.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_purple_tb_red2_repack.cpp -o geister_purple_tb_red2_repack.o
 
   # 4) Link
   run_cxx "${ldflags[@]}" \
     geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_perfect_information_tb.o \
     "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
     -o geister_perfect_information_tb
+
+  run_cxx "${ldflags[@]}" \
+    geister_core.o geister_rank.o geister_rank_triplet.o tablebase_io.o geister_purple_tb.o \
+    "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
+    -o geister_purple_tb
 
   run_cxx "${ldflags[@]}" \
     geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_perfect_information_tb_9_10.o \
@@ -535,9 +545,20 @@ build_builders() {
     "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
     -o geister_perfect_information_tb_9_10_repack_obsblk
 
+  run_cxx "${ldflags[@]}" \
+    geister_core.o geister_rank.o geister_rank_triplet.o tablebase_io.o geister_purple_tb_red2.o \
+    "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
+    -o geister_purple_tb_red2
+
+  run_cxx "${ldflags[@]}" \
+    geister_core.o geister_rank.o geister_rank_triplet.o geister_purple_tb_red2_repack.o \
+    "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
+    -o geister_purple_tb_red2_repack
+
   rm -f \
-    geister_perfect_information_tb.o \
+    geister_perfect_information_tb.o geister_purple_tb.o \
     geister_perfect_information_tb_9_10.o geister_perfect_information_tb_9_10_repack_obsblk.o \
+    geister_purple_tb_red2.o geister_purple_tb_red2_repack.o \
     geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm \
     geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o
 }
