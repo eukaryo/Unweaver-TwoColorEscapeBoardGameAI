@@ -2,25 +2,35 @@
 //
 // Runtime probe facade for Geister endgame tablebases.
 //
-// This runtime intentionally supports only perfect-information DTW tablebases.
+// Supported runtime tablebases:
+//   - Perfect-information DTW tablebases.
+//   - Purple DTW tablebases for Normal-to-move only.
 //
-// Supported tablebase formats:
+// Supported on-disk formats:
 //   - Raw .bin: headerless 1 byte/entry (direct mmap).
-//   - Seekable zstd: .bin.zst / .bin.zstd (mmap compressed + seekable decode).
+//   - Seekable zstd: .bin.zst / .bin.zstd for perfect-information tables.
+//   - Seekable zstd: .bin.zst only for purple tables.
 //
 // Perfect-information tablebase naming:
 //   - legacy (LR-canonical): id%03d_pb{pb}pr{pr}ob{ob}or{or}.bin
 //   - obsblk (observation-block): id%03d_pb{pb}pr{pr}ob{ob}or{or}_obsblk.bin
 //
-// Priority when multiple candidates exist for the same material id:
-//   1) obsblk format over legacy format
-//   2) seekable-zstd over raw .bin
+// Purple runtime naming:
+//   - tb_purple_N_k{k}_pb{pb}_pr{pr}_pp{pp}.bin
+//   - tb_purple_N_k{k}_pb{pb}_pr{pr}_pp{pp}.bin.zst
+//
+// Notes for purple runtime support:
+//   - Only N-side single-file tables are considered.
+//   - tb_purple_P_* is ignored.
+//   - partitioned artifacts such as *_partXX.bin are ignored.
+//   - .bin.zstd is intentionally ignored for purple tables.
 //
 // Value encoding (1 byte):
 //   0 unknown/draw, odd: win in that many plies, even: loss.
 
 module;
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <bit>
@@ -43,29 +53,26 @@ import tablebase_io;
 import geister_core;
 import geister_rank;
 import geister_rank_obsblk;
+import geister_rank_triplet;
 
 export module geister_tb_handler;
 
 export namespace geister_tb {
 
-	// Load (mmap) all recognised perfect-information tablebase files from the current directory.
-	//
-	// Supported on-disk representations:
-	//   - *.bin
-	//   - *.bin.zst / *.bin.zstd   (seekable zstd format)
+	// Load (mmap) all recognised runtime tablebase files from the current directory.
 	//
 	// Behaviour:
-	//   - Warn if any <=8-piece baseline files are missing.
-	//   - Silently load >=9-piece tables if present.
-	//   - Prefer obsblk over legacy when both exist.
-	//   - Prefer seekable-zstd over raw .bin when both exist.
+	//   - Warn if any <=8-piece perfect-information baseline files are missing.
+	//   - Silently load >=9-piece perfect-information tables if present.
+	//   - Silently load purple N-side single-file tables if present.
+	//   - Perfect-information priority: obsblk over legacy, seekable over raw.
+	//   - Purple priority: seekable .bin.zst over raw .bin.
 	//   - This is the synchronous path and may block until the scan + mmap completes.
 	void load_all_bins();
 
 	// Start asynchronous preload in a detached background thread.
 	//
-	// While loading is in progress, probe_perfect_information() behaves as if no
-	// table were loaded yet.
+	// While loading is in progress, both probe functions behave as if no table were loaded yet.
 	void start_background_load();
 
 	// Whether a background or synchronous load has completed successfully.
@@ -79,6 +86,21 @@ export namespace geister_tb {
 	[[nodiscard]] std::optional<std::uint8_t> probe_perfect_information(
 		const perfect_information_geister& pos) noexcept;
 
+	// Probe purple DTW tablebase (Normal-to-move only).
+	//
+	// Interpretation:
+	//   - pos is the current perfect-information position from the side-to-move perspective.
+	//   - The probe ignores the opponent's red/blue split and uses the union as purple pieces.
+	//   - k is the number of opponent red pieces already captured by the side to move.
+	//
+	// Returns std::nullopt if the corresponding purple table file is not loaded.
+	struct purple_position {
+		perfect_information_geister pos;
+		std::uint8_t k = 0;
+	};
+
+	[[nodiscard]] std::optional<std::uint8_t> probe_purple(
+		const purple_position& req) noexcept;
 
 } // namespace geister_tb
 
@@ -91,11 +113,18 @@ namespace geister_tb::detail {
 	// ---------------------------------------------------------------------
 
 	// Baseline completeness target:
-	//  - We warn if any tablebase for total pieces <= this value is missing.
+	//  - We warn if any perfect-information tablebase for total pieces <= this value is missing.
 	inline constexpr int kBaselineMaxTotalPieces = 8;
 
 	// Perfect-information material domain size (4^4 = 256).
 	inline constexpr std::size_t kPerfectDomainTotal = static_cast<std::size_t>(DOMAIN_TOTAL);
+
+	// Purple runtime material domain: k in [0,3], pb/pr in [0,4], pp in [0,8].
+	inline constexpr std::size_t kPurpleDomainTotal = 4ULL * 5ULL * 5ULL * 9ULL;
+
+	inline constexpr std::uint64_t kExitSquares =
+		(1ULL << static_cast<int>(POSITIONS::A1)) |
+		(1ULL << static_cast<int>(POSITIONS::F1));
 
 	// ---------------------------------------------------------------------
 	// Helpers: filename parsing
@@ -205,6 +234,65 @@ namespace geister_tb::detail {
 		return true;
 	}
 
+	struct PurpleMaterialKey {
+		std::uint8_t k = 0;
+		std::uint8_t pb = 0;
+		std::uint8_t pr = 0;
+		std::uint8_t pp = 0;
+	};
+
+	[[nodiscard]] inline bool purple_runtime_key_in_domain(const PurpleMaterialKey& key) noexcept {
+		if (key.k > 3) return false;
+		if (key.pb < 1 || key.pb > 4) return false;
+		if (key.pr < 1 || key.pr > 4) return false;
+		if (key.pp < 2 || key.pp > 8) return false;
+
+		const int min_pp = std::max<int>(2, 5 - static_cast<int>(key.k));
+		const int max_pp = 8 - static_cast<int>(key.k);
+		if (static_cast<int>(key.pp) < min_pp) return false;
+		if (static_cast<int>(key.pp) > max_pp) return false;
+
+		return true;
+	}
+
+	[[nodiscard]] inline bool parse_purple_bin_filename(
+		std::string_view name,
+		char& out_turn,
+		PurpleMaterialKey& out_key) noexcept
+	{
+		// tb_purple_N_k3_pb4_pr1_pp5.bin
+		// Partitioned artifacts are intentionally not recognised here.
+		std::size_t i = 0;
+		if (!consume(name, i, "tb_purple_")) return false;
+		if (i >= name.size()) return false;
+		const char turn = name[i++];
+		if (turn != 'N' && turn != 'P') return false;
+		if (!consume(name, i, "_k")) return false;
+
+		int k = 0, pb = 0, pr = 0, pp = 0;
+		if (!parse_uint(name, i, k)) return false;
+		if (!consume(name, i, "_pb")) return false;
+		if (!parse_uint(name, i, pb)) return false;
+		if (!consume(name, i, "_pr")) return false;
+		if (!parse_uint(name, i, pr)) return false;
+		if (!consume(name, i, "_pp")) return false;
+		if (!parse_uint(name, i, pp)) return false;
+		if (!consume(name, i, ".bin")) return false;
+		if (i != name.size()) return false;
+
+		PurpleMaterialKey key{
+			static_cast<std::uint8_t>(k),
+			static_cast<std::uint8_t>(pb),
+			static_cast<std::uint8_t>(pr),
+			static_cast<std::uint8_t>(pp)
+		};
+		if (!purple_runtime_key_in_domain(key)) return false;
+
+		out_turn = turn;
+		out_key = key;
+		return true;
+	}
+
 	// ---------------------------------------------------------------------
 	// Storage
 	// ---------------------------------------------------------------------
@@ -229,23 +317,61 @@ namespace geister_tb::detail {
 		bool present = false;
 	};
 
+	struct purple_entry {
+		storage_kind kind = storage_kind::none;
+
+		// raw .bin
+		tbio::mmap::mapped_file mf;
+
+		// seekable zstd (.bin.zst only for purple runtime)
+		tbio::seekable_zstd::mapped_seekable_file zsf;
+
+		PurpleMaterialKey key{};
+		bool present = false;
+	};
+
 	inline std::array<perfect_entry, kPerfectDomainTotal> g_perfect{};
+	inline std::array<purple_entry, kPurpleDomainTotal> g_purple{};
 
 	inline std::once_flag g_load_once{};
 	inline std::atomic<bool> g_loaded{ false };
 	inline std::atomic<bool> g_load_failed{ false };
 	inline std::atomic<bool> g_background_started{ false };
 
+	[[nodiscard]] inline std::size_t purple_index(std::uint8_t k, std::uint8_t pb, std::uint8_t pr, std::uint8_t pp) noexcept {
+		return (((static_cast<std::size_t>(k) * 5ULL + pb) * 5ULL + pr) * 9ULL + pp);
+	}
+
 	[[nodiscard]] inline int candidate_score(bool obsblk, bool seekable) noexcept {
 		// obsblk has larger impact than compression preference.
 		return (obsblk ? 2 : 0) + (seekable ? 1 : 0);
+	}
+
+	[[nodiscard]] inline int candidate_score(bool seekable) noexcept {
+		return seekable ? 1 : 0;
 	}
 
 	[[nodiscard]] inline int entry_score(const perfect_entry& e) noexcept {
 		return candidate_score(e.obsblk, e.kind == storage_kind::seekable_zstd);
 	}
 
+	[[nodiscard]] inline int entry_score(const purple_entry& e) noexcept {
+		return candidate_score(e.kind == storage_kind::seekable_zstd);
+	}
+
 	[[nodiscard]] inline std::uint64_t mapped_bytes(const perfect_entry& e) noexcept {
+		if (!e.present) return 0;
+		switch (e.kind) {
+		case storage_kind::raw_bin:
+			return static_cast<std::uint64_t>(e.mf.size());
+		case storage_kind::seekable_zstd:
+			return static_cast<std::uint64_t>(e.zsf.compressed_size());
+		default:
+			return 0;
+		}
+	}
+
+	[[nodiscard]] inline std::uint64_t mapped_bytes(const purple_entry& e) noexcept {
 		if (!e.present) return 0;
 		switch (e.kind) {
 		case storage_kind::raw_bin:
@@ -278,8 +404,10 @@ namespace geister_tb::detail {
 	void warn_incomplete_baseline();
 
 	inline void do_load_all_bins() {
-		std::uint64_t loaded_files = 0;
-		std::uint64_t loaded_bytes = 0;
+		std::uint64_t loaded_perfect_files = 0;
+		std::uint64_t loaded_perfect_bytes = 0;
+		std::uint64_t loaded_purple_files = 0;
+		std::uint64_t loaded_purple_bytes = 0;
 
 		const std::filesystem::path dir = std::filesystem::current_path();
 
@@ -289,20 +417,26 @@ namespace geister_tb::detail {
 
 			const std::filesystem::path p = ent.path();
 
-			// Accept:
-			//   - *.bin
-			//   - *.bin.zst / *.bin.zstd
 			bool is_seekable = false;
+			bool is_purple_seekable_allowed = false;
 			std::string parse_name;
 
 			if (p.extension() == ".bin") {
 				parse_name = p.filename().string();
 				is_seekable = false;
+				is_purple_seekable_allowed = false;
 			}
-			else if ((p.extension() == ".zst" || p.extension() == ".zstd") && p.stem().extension() == ".bin") {
+			else if (p.extension() == ".zst" && p.stem().extension() == ".bin") {
 				// example: id000_..._obsblk.bin.zst  -> parse "id000_..._obsblk.bin"
 				parse_name = p.stem().filename().string();
 				is_seekable = true;
+				is_purple_seekable_allowed = true;
+			}
+			else if (p.extension() == ".zstd" && p.stem().extension() == ".bin") {
+				// Perfect-information runtime still accepts .bin.zstd.
+				parse_name = p.stem().filename().string();
+				is_seekable = true;
+				is_purple_seekable_allowed = false;
 			}
 			else {
 				continue;
@@ -347,10 +481,10 @@ namespace geister_tb::detail {
 
 							// Replace / install.
 							if (slot.present) {
-								loaded_bytes -= mapped_bytes(slot);
+								loaded_perfect_bytes -= mapped_bytes(slot);
 							}
 							else {
-								++loaded_files;
+								++loaded_perfect_files;
 							}
 
 							slot.zsf = std::move(zsf);
@@ -360,7 +494,7 @@ namespace geister_tb::detail {
 							slot.obsblk = obsblk;
 							slot.present = true;
 
-							loaded_bytes += mapped_bytes(slot);
+							loaded_perfect_bytes += mapped_bytes(slot);
 						}
 						else {
 							auto mf = tbio::mmap::open_tablebase_bin_readonly(p, entries);
@@ -368,10 +502,10 @@ namespace geister_tb::detail {
 
 							// Replace / install.
 							if (slot.present) {
-								loaded_bytes -= mapped_bytes(slot);
+								loaded_perfect_bytes -= mapped_bytes(slot);
 							}
 							else {
-								++loaded_files;
+								++loaded_perfect_files;
 							}
 
 							slot.mf = std::move(mf);
@@ -381,7 +515,7 @@ namespace geister_tb::detail {
 							slot.obsblk = obsblk;
 							slot.present = true;
 
-							loaded_bytes += mapped_bytes(slot);
+							loaded_perfect_bytes += mapped_bytes(slot);
 						}
 					}
 					catch (const std::exception& e) {
@@ -392,14 +526,88 @@ namespace geister_tb::detail {
 				}
 			}
 
-			// Other files are ignored here (belief TB etc.).
+			// Purple N-side single-file runtime tables.
+			{
+				char turn = 0;
+				PurpleMaterialKey key{};
+				if (parse_purple_bin_filename(parse_name, turn, key)) {
+					if (turn != 'N') {
+						continue; // runtime probes only Normal-to-move purple tables
+					}
+					if (is_seekable && !is_purple_seekable_allowed) {
+						continue; // purple runtime intentionally ignores .bin.zstd
+					}
+
+					const std::uint64_t entries = states_for_counts(key.pb, key.pr, key.pp);
+					auto& slot = g_purple[purple_index(key.k, key.pb, key.pr, key.pp)];
+					const int new_score = candidate_score(is_seekable);
+					const int old_score = slot.present ? entry_score(slot) : -1;
+
+					if (slot.present && new_score <= old_score) {
+						if (new_score == old_score) {
+							std::cerr << "[WARN] duplicate purple table ignored: " << p.filename().string() << std::endl;
+						}
+						continue;
+					}
+
+					try {
+						if (is_seekable) {
+							auto zsf = tbio::seekable_zstd::open_tablebase_seekable_zstd_readonly(p, entries);
+							zsf.advise(tbio::mmap::advice::random);
+
+							if (slot.present) {
+								loaded_purple_bytes -= mapped_bytes(slot);
+							}
+							else {
+								++loaded_purple_files;
+							}
+
+							slot.zsf = std::move(zsf);
+							slot.mf = {};
+							slot.kind = storage_kind::seekable_zstd;
+							slot.key = key;
+							slot.present = true;
+
+							loaded_purple_bytes += mapped_bytes(slot);
+						}
+						else {
+							auto mf = tbio::mmap::open_tablebase_bin_readonly(p, entries);
+							mf.advise(tbio::mmap::advice::random);
+
+							if (slot.present) {
+								loaded_purple_bytes -= mapped_bytes(slot);
+							}
+							else {
+								++loaded_purple_files;
+							}
+
+							slot.mf = std::move(mf);
+							slot.zsf = {};
+							slot.kind = storage_kind::raw_bin;
+							slot.key = key;
+							slot.present = true;
+
+							loaded_purple_bytes += mapped_bytes(slot);
+						}
+					}
+					catch (const std::exception& e) {
+						std::cerr << "[WARN] failed to load purple table: " << p.filename().string()
+							<< " (" << e.what() << ")" << std::endl;
+					}
+					continue;
+				}
+			}
+
+			// Other files are ignored here (belief TB, partitioned intermediates, etc.).
 		}
 
 		g_loaded.store(true, std::memory_order_release);
 
-		std::cerr << "[TB] loaded perfect-information tables: " << loaded_files
-			<< ", total mapped bytes: " << loaded_bytes
+		std::cerr << "[TB] loaded perfect-information tables: " << loaded_perfect_files
+			<< ", total mapped bytes: " << loaded_perfect_bytes
 			<< " (cwd=" << dir.string() << ")" << std::endl;
+		std::cerr << "[TB] loaded purple N-side tables: " << loaded_purple_files
+			<< ", total mapped bytes: " << loaded_purple_bytes << std::endl;
 
 		warn_incomplete_baseline();
 	}
@@ -439,6 +647,53 @@ namespace geister_tb::detail {
 			std::cerr << "[WARN] perfect-information baseline incomplete: missing "
 				<< missing << " / " << expected
 				<< " tables for total<= " << kBaselineMaxTotalPieces << std::endl;
+		}
+	}
+
+	// ---------------------------------------------------------------------
+	// Purple terminal detection (Normal-to-move convention only)
+	// ---------------------------------------------------------------------
+
+	[[nodiscard]] inline std::uint8_t purple_normal_immediate_value(const perfect_information_geister& pos, std::uint8_t k) noexcept {
+		if (pos.bb_player.bb_blue & kExitSquares) return 1;
+		if (pos.bb_player.bb_red == 0) return 1;
+		if (pos.bb_opponent.bb_piece == 0) return 1;
+		if (pos.bb_player.bb_blue == 0) return 2;
+		if (k >= 4) return 2;
+		return 0;
+	}
+
+	[[nodiscard]] inline std::optional<std::uint8_t> read_entry(const perfect_entry& ent, std::uint64_t idx) noexcept {
+		switch (ent.kind) {
+		case storage_kind::raw_bin: {
+			const auto span = ent.mf.u8span();
+			if (idx >= span.size()) return std::nullopt;
+			return span[static_cast<std::size_t>(idx)];
+		}
+		case storage_kind::seekable_zstd: {
+			std::uint8_t v = 0;
+			if (!ent.zsf.read_u8(idx, v)) return std::nullopt;
+			return v;
+		}
+		default:
+			return std::nullopt;
+		}
+	}
+
+	[[nodiscard]] inline std::optional<std::uint8_t> read_entry(const purple_entry& ent, std::uint64_t idx) noexcept {
+		switch (ent.kind) {
+		case storage_kind::raw_bin: {
+			const auto span = ent.mf.u8span();
+			if (idx >= span.size()) return std::nullopt;
+			return span[static_cast<std::size_t>(idx)];
+		}
+		case storage_kind::seekable_zstd: {
+			std::uint8_t v = 0;
+			if (!ent.zsf.read_u8(idx, v)) return std::nullopt;
+			return v;
+		}
+		default:
+			return std::nullopt;
 		}
 	}
 
@@ -525,20 +780,44 @@ namespace geister_tb {
 				pos.bb_opponent.bb_blue,
 				pos.bb_opponent.bb_red);
 
-		switch (ent.kind) {
-		case detail::storage_kind::raw_bin: {
-			const auto span = ent.mf.u8span();
-			if (idx >= span.size()) return std::nullopt; // defensive
-			return span[static_cast<std::size_t>(idx)];
+		return detail::read_entry(ent, idx);
+	}
+
+	[[nodiscard]] std::optional<std::uint8_t> probe_purple(
+		const purple_position& req) noexcept
+	{
+		if (!detail::g_loaded.load(std::memory_order_acquire)) return std::nullopt;
+
+		if (const std::uint8_t imm = detail::purple_normal_immediate_value(req.pos, req.k); imm != 0) {
+			return imm;
 		}
-		case detail::storage_kind::seekable_zstd: {
-			std::uint8_t v = 0;
-			if (!ent.zsf.read_u8(idx, v)) return std::nullopt;
-			return v;
-		}
-		default:
+
+		const int pb = std::popcount(req.pos.bb_player.bb_blue);
+		const int pr = std::popcount(req.pos.bb_player.bb_red);
+		const int pp = std::popcount(req.pos.bb_opponent.bb_piece);
+		if (pb < 1 || pb > 4 || pr < 1 || pr > 4 || pp < 2 || pp > 8 || req.k > 3) {
 			return std::nullopt;
 		}
+
+		const detail::PurpleMaterialKey key{
+			req.k,
+			static_cast<std::uint8_t>(pb),
+			static_cast<std::uint8_t>(pr),
+			static_cast<std::uint8_t>(pp)
+		};
+		if (!detail::purple_runtime_key_in_domain(key)) {
+			return std::nullopt;
+		}
+
+		const auto& ent = detail::g_purple[
+			detail::purple_index(key.k, key.pb, key.pr, key.pp)];
+		if (!ent.present) return std::nullopt;
+
+		const std::uint64_t idx = rank_triplet_canon(
+			req.pos.bb_player.bb_blue,
+			req.pos.bb_player.bb_red,
+			req.pos.bb_opponent.bb_piece);
+		return detail::read_entry(ent, idx);
 	}
 
 } // namespace geister_tb
