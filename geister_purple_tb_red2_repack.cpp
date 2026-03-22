@@ -11,9 +11,6 @@
 //   tb_purple_N_k3_pb4_pr1_pp5.bin
 //   tb_purple_P_k3_pb4_pr1_pp5.bin
 //
-// In the current public runtime integration, typically only the N-side files are
-// consumed (`--turn N`), but the repacker can still emit both turns when needed.
-//
 // The output layout matches the legacy purple builder / handler convention:
 //   - Normal-to-move: rank_triplet_canon(normal_blue, normal_red, purple_piece)
 //   - Purple-to-move: rank_triplet_canon(purple_piece, normal_blue, normal_red)
@@ -63,6 +60,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -210,6 +208,84 @@ static void atomic_rename_best_effort(const fs::path& tmp, const fs::path& dst) 
 	fs::path tmp = filename;
 	tmp += ".tmp";
 	return tmp;
+}
+
+[[nodiscard]] static std::error_code remove_tree_with_retries(
+	const fs::path& dir,
+	int max_tries = 8,
+	std::chrono::milliseconds retry_sleep = std::chrono::milliseconds(100))
+{
+	if (dir.empty()) return {};
+
+	std::error_code ec_exists;
+	if (!fs::exists(dir, ec_exists)) return {};
+
+	std::error_code last_ec;
+	for (int attempt = 0; attempt < max_tries; ++attempt) {
+		std::error_code ec_rm;
+		fs::remove_all(dir, ec_rm);
+		if (!ec_rm) return {};
+		last_ec = ec_rm;
+
+		std::error_code ec_check;
+		if (!fs::exists(dir, ec_check)) return {};
+
+		if (attempt + 1 < max_tries) {
+			std::this_thread::sleep_for(retry_sleep);
+		}
+	}
+	return last_ec;
+}
+
+[[nodiscard]] static std::error_code remove_empty_dir_with_retries(
+	const fs::path& dir,
+	int max_tries = 8,
+	std::chrono::milliseconds retry_sleep = std::chrono::milliseconds(100))
+{
+	if (dir.empty()) return {};
+
+	std::error_code ec_exists;
+	if (!fs::exists(dir, ec_exists)) return {};
+	if (ec_exists) return ec_exists;
+
+	std::error_code last_ec;
+	for (int attempt = 0; attempt < max_tries; ++attempt) {
+		std::error_code ec_rm;
+		const bool removed = fs::remove(dir, ec_rm);
+		if (!ec_rm) {
+			if (removed) return {};
+
+			std::error_code ec_check;
+			if (!fs::exists(dir, ec_check)) return {};
+			if (ec_check) {
+				last_ec = ec_check;
+			}
+			else {
+				std::error_code ec_empty;
+				const bool empty = fs::is_empty(dir, ec_empty);
+				if (ec_empty) {
+					last_ec = ec_empty;
+				}
+				else if (!empty) {
+					return std::make_error_code(std::errc::directory_not_empty);
+				}
+				else {
+					last_ec = std::make_error_code(std::errc::device_or_resource_busy);
+				}
+			}
+		}
+		else {
+			last_ec = ec_rm;
+			std::error_code ec_check;
+			if (!fs::exists(dir, ec_check)) return {};
+			if (ec_check) last_ec = ec_check;
+		}
+
+		if (attempt + 1 < max_tries) {
+			std::this_thread::sleep_for(retry_sleep);
+		}
+	}
+	return last_ec;
 }
 
 // ============================================================
@@ -1045,23 +1121,11 @@ static void repack_one_turn(
 
 	const PreparedRawInputs prep = prepare_raw_inputs_for_turn(args, mat, turn);
 
-	std::array<mapped_raw_file, 18> parts{};
-	for (int pid = 0; pid < 18; ++pid) {
-		parts[static_cast<size_t>(pid)] = mapped_raw_file::open_readonly(prep.raw_path[static_cast<size_t>(pid)], mat.entries_per_part);
-	}
-
 	std::error_code ec;
 	fs::create_directories(args.out_dir, ec);
 	const fs::path out_tmp = tmp_path_for(out_path);
 
-	std::ofstream ofs(out_tmp, std::ios::binary | std::ios::trunc);
-	if (!ofs) {
-		throw std::runtime_error("failed to open output tmp: " + out_tmp.string());
-	}
-
 	const std::uint64_t chunk_bytes = args.chunk_mib * (1ULL << 20);
-	std::vector<std::uint8_t> out_buf(static_cast<size_t>(chunk_bytes));
-
 	tbutil::log_line("[repack] begin ", mat.tag,
 				" turn=", (turn == TurnKind::NormalToMove ? 'N' : 'P'),
 				" total_entries=", total_entries,
@@ -1069,69 +1133,81 @@ static void repack_one_turn(
 				" chunk=", args.chunk_mib, " MiB");
 
 	const auto t0 = tbutil::Clock::now();
-	std::uint64_t base = 0;
-	std::uint64_t next_log_at = 0;
-	const std::uint64_t log_step = std::max<std::uint64_t>(total_entries / 64ULL, chunk_bytes); // ~64 logs max
+	{
+		std::array<mapped_raw_file, 18> parts{};
+		for (int pid = 0; pid < 18; ++pid) {
+			parts[static_cast<size_t>(pid)] = mapped_raw_file::open_readonly(prep.raw_path[static_cast<size_t>(pid)], mat.entries_per_part);
+		}
 
-	while (base < total_entries) {
-		const std::uint64_t take = std::min<std::uint64_t>(chunk_bytes, total_entries - base);
+		std::ofstream ofs(out_tmp, std::ios::binary | std::ios::trunc);
+		if (!ofs) {
+			throw std::runtime_error("failed to open output tmp: " + out_tmp.string());
+		}
 
-		if (turn == TurnKind::NormalToMove) {
+		std::vector<std::uint8_t> out_buf(static_cast<size_t>(chunk_bytes));
+		std::uint64_t base = 0;
+		std::uint64_t next_log_at = 0;
+		const std::uint64_t log_step = std::max<std::uint64_t>(total_entries / 64ULL, chunk_bytes); // ~64 logs max
+
+		while (base < total_entries) {
+			const std::uint64_t take = std::min<std::uint64_t>(chunk_bytes, total_entries - base);
+
+			if (turn == TurnKind::NormalToMove) {
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static)
 #endif
-			for (std::int64_t i = 0; i < static_cast<std::int64_t>(take); ++i) {
-				const std::uint64_t idx = base + static_cast<std::uint64_t>(i);
-				std::uint64_t normal_blue = 0, normal_red = 0, purple_piece = 0;
-				unrank_triplet_canon(idx, mat.key.pb, mat.key.pr, mat.key.pp, normal_blue, normal_red, purple_piece);
-				const RankResult rr = rank_partitioned_normal(pi, mat, normal_blue, normal_red, purple_piece);
-				out_buf[static_cast<size_t>(i)] = parts[static_cast<size_t>(rr.part)].data()[static_cast<size_t>(rr.idx)];
+				for (std::int64_t i = 0; i < static_cast<std::int64_t>(take); ++i) {
+					const std::uint64_t idx = base + static_cast<std::uint64_t>(i);
+					std::uint64_t normal_blue = 0, normal_red = 0, purple_piece = 0;
+					unrank_triplet_canon(idx, mat.key.pb, mat.key.pr, mat.key.pp, normal_blue, normal_red, purple_piece);
+					const RankResult rr = rank_partitioned_normal(pi, mat, normal_blue, normal_red, purple_piece);
+					out_buf[static_cast<size_t>(i)] = parts[static_cast<size_t>(rr.part)].data()[static_cast<size_t>(rr.idx)];
+				}
 			}
-		}
-		else {
+			else {
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static)
 #endif
-			for (std::int64_t i = 0; i < static_cast<std::int64_t>(take); ++i) {
-				const std::uint64_t idx = base + static_cast<std::uint64_t>(i);
-				std::uint64_t purple_piece = 0, normal_blue = 0, normal_red = 0;
-				unrank_triplet_canon(idx, mat.key.pp, mat.key.pb, mat.key.pr, purple_piece, normal_blue, normal_red);
-				const RankResult rr = rank_partitioned_purple(pi, mat, purple_piece, normal_blue, normal_red);
-				out_buf[static_cast<size_t>(i)] = parts[static_cast<size_t>(rr.part)].data()[static_cast<size_t>(rr.idx)];
+				for (std::int64_t i = 0; i < static_cast<std::int64_t>(take); ++i) {
+					const std::uint64_t idx = base + static_cast<std::uint64_t>(i);
+					std::uint64_t purple_piece = 0, normal_blue = 0, normal_red = 0;
+					unrank_triplet_canon(idx, mat.key.pp, mat.key.pb, mat.key.pr, purple_piece, normal_blue, normal_red);
+					const RankResult rr = rank_partitioned_purple(pi, mat, purple_piece, normal_blue, normal_red);
+					out_buf[static_cast<size_t>(i)] = parts[static_cast<size_t>(rr.part)].data()[static_cast<size_t>(rr.idx)];
+				}
+			}
+
+			ofs.write(reinterpret_cast<const char*>(out_buf.data()), static_cast<std::streamsize>(take));
+			if (!ofs) throw std::runtime_error("output write failed: " + out_tmp.string());
+			base += take;
+
+			if (base >= next_log_at || base == total_entries) {
+				const double elapsed = std::chrono::duration<double>(tbutil::Clock::now() - t0).count();
+				const double frac = (total_entries == 0) ? 1.0 : (static_cast<double>(base) / static_cast<double>(total_entries));
+				const double rate_gib_s = (elapsed > 0.0) ? (tbutil::to_gib(base) / elapsed) : 0.0;
+				std::ostringstream pct;
+				pct << std::fixed << std::setprecision(2) << (frac * 100.0);
+				tbutil::log_line("[repack] ", mat.tag,
+							" turn=", (turn == TurnKind::NormalToMove ? 'N' : 'P'),
+							" progress=", pct.str(), "%",
+							" bytes=", base, "/", total_entries,
+							" (", std::fixed, std::setprecision(3), tbutil::to_gib(base), "/", tbutil::to_gib(total_entries), " GiB)",
+							" rate=", std::fixed, std::setprecision(3), rate_gib_s, " GiB/s");
+				next_log_at = base + log_step;
 			}
 		}
 
-		ofs.write(reinterpret_cast<const char*>(out_buf.data()), static_cast<std::streamsize>(take));
-		if (!ofs) throw std::runtime_error("output write failed: " + out_tmp.string());
-		base += take;
-
-		if (base >= next_log_at || base == total_entries) {
-			const double elapsed = std::chrono::duration<double>(tbutil::Clock::now() - t0).count();
-			const double frac = (total_entries == 0) ? 1.0 : (static_cast<double>(base) / static_cast<double>(total_entries));
-			const double rate_gib_s = (elapsed > 0.0) ? (tbutil::to_gib(base) / elapsed) : 0.0;
-			std::ostringstream pct;
-			pct << std::fixed << std::setprecision(2) << (frac * 100.0);
-			tbutil::log_line("[repack] ", mat.tag,
-						" turn=", (turn == TurnKind::NormalToMove ? 'N' : 'P'),
-						" progress=", pct.str(), "%",
-						" bytes=", base, "/", total_entries,
-						" (", std::fixed, std::setprecision(3), tbutil::to_gib(base), "/", tbutil::to_gib(total_entries), " GiB)",
-						" rate=", std::fixed, std::setprecision(3), rate_gib_s, " GiB/s");
-			next_log_at = base + log_step;
-		}
+		ofs.flush();
+		ofs.close();
+		atomic_rename_best_effort(out_tmp, out_path);
 	}
-
-	ofs.flush();
-	ofs.close();
-	atomic_rename_best_effort(out_tmp, out_path);
 
 	const double sec = std::chrono::duration<double>(tbutil::Clock::now() - t0).count();
 	tbutil::log_line("[repack] done ", out_path.string(),
 				" (", std::fixed, std::setprecision(3), sec, "s)");
 
 	if (prep.used_stage && !args.keep_stage) {
-		std::error_code ec_rm;
-		fs::remove_all(prep.stage_dir, ec_rm);
+		const std::error_code ec_rm = remove_tree_with_retries(prep.stage_dir);
 		if (ec_rm) {
 			tbutil::log_line("[WARN] failed to remove stage dir: ", prep.stage_dir.string(), " : ", ec_rm.message());
 		}
@@ -1190,6 +1266,24 @@ int main(int argc, char** argv) {
 			}
 			if (args.turn_sel == Args::TurnSel::Both || args.turn_sel == Args::TurnSel::P) {
 				repack_one_turn(args, pi, mat, TurnKind::PurpleToMove);
+			}
+		}
+
+		if (!args.keep_stage) {
+			const std::error_code ec_rm_root = remove_empty_dir_with_retries(args.stage_root);
+			if (ec_rm_root && ec_rm_root != std::make_error_code(std::errc::directory_not_empty)) {
+				tbutil::log_line("[WARN] failed to remove stage root dir: ", args.stage_root.string(), " : ", ec_rm_root.message());
+			}
+		}
+
+		if (!args.keep_stage) {
+			std::error_code ec_root;
+			if (fs::exists(args.stage_root, ec_root) && fs::is_directory(args.stage_root, ec_root)) {
+				const bool empty = fs::is_empty(args.stage_root, ec_root);
+				if (!ec_root && empty) {
+					std::error_code ec_rm_root;
+					fs::remove(args.stage_root, ec_rm_root);
+				}
 			}
 		}
 

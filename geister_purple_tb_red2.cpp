@@ -18,14 +18,12 @@
 //   - Lower dependencies are queried from existing <=8 full purple TBs (legacy
 //     single-file format) or, for p10, from the completed p9b partitioned build.
 //
-// Optional raw partition export (debug / inspection only):
+// Optional runtime export:
 //   --export-runtime-normal-parts
 //     Decompresses the completed final Normal-to-move partitions into flat raw
 //     .bin files named
 //       tb_purple_N_k3_pb{pb}_pr1_pp{pp}_partXX.bin
-//     The current public runtime does not consume these partition files directly;
-//     use geister_purple_tb_red2_repack.cpp to obtain runtime-ready single-file
-//     tb_purple_N_*.bin outputs.
+//     which geister_tb_handler.cxx can probe directly.
 
 #include <algorithm>
 #include <array>
@@ -941,7 +939,7 @@ static void print_usage(const char* argv0) {
         << "Options:\n"
         << "  --out-dir DIR                    Iteration output root (default: tb_purple_red2)\n"
         << "  --dep-dir DIR                    Legacy <=8 purple TB directory (default: .)\n"
-        << "  --runtime-out-dir DIR            Output dir for --export-runtime-normal-parts debug files (default: .)\n"
+        << "  --runtime-out-dir DIR            Output dir for --export-runtime-normal-parts (default: .)\n"
         << "  --max-depth N                    Max DTW depth to build (default: 210)\n"
         << "  --zstd-level N                   zstd compression level (default: 3)\n"
         << "  --zstd-workers N                 zstd nbWorkers (default: 8)\n"
@@ -949,7 +947,7 @@ static void print_usage(const char* argv0) {
         << "  --omp-chunk N                    OpenMP schedule chunk (default: 1024)\n"
         << "  --only p9a|p9b|p10               Build only one material\n"
         << "  --dep-p9b-iter N                 Completed p9b iter used by p10 (default: max-depth)\n"
-        << "  --export-runtime-normal-parts    Export final N-turn raw partition bins (debug only; public runtime uses repacked single-file bins)\n"
+        << "  --export-runtime-normal-parts    Export final N-turn raw partition bins for runtime probing\n"
         << "  --keep-all-iters                 Keep all completed iter dirs (default: keep only prev/current)\n"
         << "  --self-test                      Run partition rank/unrank self-tests and exit\n"
         << "  --help, -h                       Show this help\n";
