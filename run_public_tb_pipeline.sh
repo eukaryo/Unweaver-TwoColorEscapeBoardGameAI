@@ -21,9 +21,9 @@ Build/run order encoded by this script:
 
 Important:
   - This script runs geister_blackbox_tests first and aborts immediately on failure.
-  - This script always builds <=8 up to total=8 for both perfect and purple tables,
-    because the 9/10 perfect builder depends on <=8 perfect tables and the red2
-    purple builder depends on <=8 purple tables.
+  - This script always builds <=8 perfect tables and purple totals 3..8, because
+    the 9/10 perfect builder depends on <=8 perfect tables and the red2 purple
+    builder depends on the legacy <=8 purple tables.
   - geister_perfect_information_tb is run with --no-write-txt, so normal output is *_obsblk.bin only.
   - geister_perfect_information_tb_9_10 consumes <=8 *_obsblk.bin directly
     (legacy headerless .bin is also accepted as a fallback).
@@ -476,9 +476,9 @@ run_cmd "$PERFECT_9_10_BIN" --out "$OUT_DIR" --dep "$PERFECT_DEP_DIR" --max-dept
 # 3) Repack 9/10 perfect partitioned output into runtime *_obsblk.bin files.
 run_cmd "$PERFECT_9_10_REPACK_BIN" --in "$OUT_DIR" --out "$OUT_DIR" --iter "$MAX_DEPTH"
 
-# 4) <=8 purple TBs.
+# 4) <=8 purple TBs (all meaningful totals 3..8).
 # geister_purple_tb has no --out-dir; it writes to cwd.
-run_cmd_in_dir "$OUT_DIR" "$PURPLE_LE8_BIN" --total-max 8
+run_cmd_in_dir "$OUT_DIR" "$PURPLE_LE8_BIN" --total-min 3 --total-max 8
 
 # 5) red2 purple TB partitions.
 # p9a / p9b depend on <=8 purple legacy tb_purple_{N,P}_*.bin in OUT_DIR.
