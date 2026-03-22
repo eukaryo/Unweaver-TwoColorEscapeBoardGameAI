@@ -378,8 +378,8 @@ clean_runtime_artifacts() {
 
 clean_test_artifacts() {
   rm -f geister_blackbox_tests geister_blackbox_tests.o \
-    geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm \
-    geister_core.o geister_rank.o geister_rank_triplet.o
+    geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm geister_tb_handler.pcm \
+    geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_tb_handler.o
 }
 
 clean_builder_artifacts() {
@@ -456,6 +456,7 @@ build_runtime() {
 }
 
 build_tests() {
+  ensure_seekable_zstd
   clean_test_artifacts
 
   local -a warnflags=(-Wall -Wextra -Wpedantic -Wunused-variable)
@@ -467,24 +468,34 @@ build_tests() {
   run_cxx "${cxxflags[@]}" -x c++-module --precompile geister_core.cxx -o geister_core.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_rank.cxx -o geister_rank.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_rank_triplet.cxx -o geister_rank_triplet.pcm
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_rank_obsblk.cxx -o geister_rank_obsblk.pcm
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile tablebase_io.cxx -o tablebase_io.pcm
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_tb_handler.cxx -o geister_tb_handler.pcm
 
   # 2) Compile object files from the ORIGINAL sources (NOT from .pcm)
   run_cxx "${cxxflags[@]}" -c geister_core.cxx -o geister_core.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_rank.cxx -o geister_rank.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_rank_triplet.cxx -o geister_rank_triplet.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_rank_obsblk.cxx -o geister_rank_obsblk.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c tablebase_io.cxx -o tablebase_io.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_tb_handler.cxx -o geister_tb_handler.o
 
   # 3) Compile the blackbox tests (imports modules via BMIs)
-  run_cxx "${cxxflags[@]}" "${mpath[@]}" -DGEISTER_ENABLE_TRIPLET_RANK_TESTS -c geister_blackbox_tests.cpp -o geister_blackbox_tests.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" \
+    -DGEISTER_ENABLE_TRIPLET_RANK_TESTS \
+    -DGEISTER_ENABLE_PURPLE_TB_TESTS \
+    -c geister_blackbox_tests.cpp -o geister_blackbox_tests.o
 
   # 4) Link
   run_cxx "${ldflags[@]}" \
-    geister_core.o geister_rank.o geister_rank_triplet.o geister_blackbox_tests.o \
+    geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_tb_handler.o geister_blackbox_tests.o \
+    "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
     -o geister_blackbox_tests
 
   rm -f \
     geister_blackbox_tests.o \
-    geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm \
-    geister_core.o geister_rank.o geister_rank_triplet.o
+    geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm geister_tb_handler.pcm \
+    geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_tb_handler.o
 }
 
 build_builders() {

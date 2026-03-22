@@ -4,14 +4,23 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <random>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 import geister_core;
 import geister_rank;
 
-#ifdef GEISTER_ENABLE_TRIPLET_RANK_TESTS
+#if defined(GEISTER_ENABLE_TRIPLET_RANK_TESTS) || defined(GEISTER_ENABLE_PURPLE_TB_TESTS)
 import geister_rank_triplet;
+#endif
+
+#ifdef GEISTER_ENABLE_PURPLE_TB_TESTS
+import geister_tb_handler;
 #endif
 
 consteval auto make_board_bits36() {
@@ -575,7 +584,109 @@ void test_triplet_rank_unrank_random_positions(const int TRIALS = 200000) {
 	}
 }
 
-#endif // GEISTER_ENABLE_TRIPLET_RANK_TESTS
+#endif // GEISTER_ENABLE_TRIPLET_RANK_TESTS || GEISTER_ENABLE_PURPLE_TB_TESTS
+
+#ifdef GEISTER_ENABLE_PURPLE_TB_TESTS
+namespace fs = std::filesystem;
+
+namespace {
+
+[[nodiscard]] inline std::uint64_t sq(const POSITIONS p) noexcept {
+	return 1ULL << static_cast<unsigned>(p);
+}
+
+[[nodiscard]] fs::path make_temp_test_dir(const std::string& stem) {
+	const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+	const fs::path dir = fs::temp_directory_path() / ("geister_blackbox_" + stem + "_" + std::to_string(now));
+	fs::create_directories(dir);
+	return dir;
+}
+
+void write_binary_file(const fs::path& path, const std::vector<std::uint8_t>& bytes) {
+	std::ofstream ofs(path, std::ios::binary);
+	if (!ofs) throw std::runtime_error("failed to open output file: " + path.string());
+	if (!bytes.empty()) {
+		ofs.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+	}
+	if (!ofs) throw std::runtime_error("failed to write file: " + path.string());
+}
+
+[[nodiscard]] std::vector<std::uint8_t> make_sparse_purple_table(
+	const int pb,
+	const int pr,
+	const int pp,
+	const std::uint64_t index,
+	const std::uint8_t value)
+{
+	const std::uint64_t n = states_for_counts(pb, pr, pp);
+	if (index >= n) throw std::runtime_error("purple test index out of range");
+	std::vector<std::uint8_t> out(static_cast<std::size_t>(n), 0U);
+	out[static_cast<std::size_t>(index)] = value;
+	return out;
+}
+
+} // namespace
+
+void test_purple_probe_raw_and_ignore_pside() {
+	const fs::path temp_dir = make_temp_test_dir("purple_probe");
+	const fs::path old_cwd = fs::current_path();
+	try {
+		const std::uint64_t my_blue = sq(POSITIONS::B2);
+		const std::uint64_t my_red = sq(POSITIONS::C2);
+		const std::uint64_t opp_piece = sq(POSITIONS::D4) | sq(POSITIONS::E4);
+		const std::uint64_t idx = rank_triplet_canon(my_blue, my_red, opp_piece);
+		write_binary_file(
+			temp_dir / "tb_purple_N_k3_pb1_pr1_pp2.bin",
+			make_sparse_purple_table(1, 1, 2, idx, 7U));
+
+		const std::uint64_t my_blue_p = sq(POSITIONS::B3);
+		const std::uint64_t my_red_p = sq(POSITIONS::C3);
+		const std::uint64_t opp_piece_p = sq(POSITIONS::D5) | sq(POSITIONS::E5) | sq(POSITIONS::F5);
+		const std::uint64_t idx_p = rank_triplet_canon(my_blue_p, my_red_p, opp_piece_p);
+		write_binary_file(
+			temp_dir / "tb_purple_P_k3_pb1_pr1_pp3.bin",
+			make_sparse_purple_table(1, 1, 3, idx_p, 9U));
+
+		write_binary_file(
+			temp_dir / "tb_purple_N_k3_pb1_pr1_pp3_part00.bin",
+			std::vector<std::uint8_t>(32, 123U));
+
+		fs::current_path(temp_dir);
+		geister_tb::load_all_bins();
+		if (!geister_tb::is_ready()) throw std::runtime_error("purple runtime test: handler is not ready after synchronous load");
+		if (geister_tb::load_failed()) throw std::runtime_error("purple runtime test: handler reports load failure after synchronous load");
+
+		const perfect_information_geister pos_n{
+			player_board(my_red, my_blue),
+			player_board(0ULL, opp_piece)
+		};
+		const auto v_n = geister_tb::probe_purple(geister_tb::purple_position{ pos_n, 3U });
+		if (!v_n.has_value() || *v_n != 7U) {
+			throw std::runtime_error("purple runtime test: failed to probe raw N-side table");
+		}
+
+		const perfect_information_geister pos_p{
+			player_board(my_red_p, my_blue_p),
+			player_board(0ULL, opp_piece_p)
+		};
+		const auto v_p = geister_tb::probe_purple(geister_tb::purple_position{ pos_p, 3U });
+		if (v_p.has_value()) {
+			throw std::runtime_error("purple runtime test: unexpectedly loaded P-side or partitioned purple artifact");
+		}
+	}
+	catch (...) {
+		std::error_code ec;
+		fs::current_path(old_cwd, ec);
+		fs::remove_all(temp_dir, ec);
+		throw;
+	}
+
+	std::error_code ec;
+	fs::current_path(old_cwd, ec);
+	fs::remove_all(temp_dir, ec);
+}
+#endif // GEISTER_ENABLE_PURPLE_TB_TESTS
+
 namespace {
 
 template <class Fn>
@@ -602,6 +713,9 @@ int main() {
         run_one("triplet canonical domain size (Burnside)", [] { test_triplet_canonical_state_counts(); });
         run_one("triplet rank/unrank random numbers", [] { test_triplet_rank_unrank_random_numbers(); });
         run_one("triplet rank/unrank random positions", [] { test_triplet_rank_unrank_random_positions(); });
+#endif
+#ifdef GEISTER_ENABLE_PURPLE_TB_TESTS
+        run_one("purple runtime raw probe / ignore P-side", [] { test_purple_probe_raw_and_ignore_pside(); });
 #endif
         std::cerr << "All blackbox tests passed.\n";
         return 0;
