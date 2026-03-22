@@ -21,7 +21,7 @@ Usage: ./build_public.sh [options] [target]
 
 Targets:
   runtime    Build geister_stdio_baseline_player
-  builders   Build perfect-information tablebase builders
+  builders   Build perfect-information and purple tablebase builders
   tests      Build geister_blackbox_tests
   all        Build everything above (default)
   clean      Remove build artifacts produced by this script
@@ -371,22 +371,24 @@ ensure_seekable_zstd() {
 clean_runtime_artifacts() {
   rm -f geister_stdio_baseline_player geister_stdio_baseline_player.o \
     geister_core.pcm geister_interface.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm \
-    geister_tb_handler.pcm geister_random_player.pcm geister_proven_escape.pcm confident_player.pcm \
+    geister_tb_handler.pcm geister_random_player.pcm geister_proven_escape.pcm geister_purple_winning.pcm confident_player.pcm \
     geister_core.o geister_interface.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o \
-    geister_tb_handler.o geister_random_player.o geister_proven_escape.o confident_player.o
+    geister_tb_handler.o geister_random_player.o geister_proven_escape.o geister_purple_winning.o confident_player.o
 }
 
 clean_test_artifacts() {
   rm -f geister_blackbox_tests geister_blackbox_tests.o \
-    geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm \
-    geister_core.o geister_rank.o geister_rank_triplet.o
+    geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm geister_tb_handler.pcm \
+    geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_tb_handler.o
 }
 
 clean_builder_artifacts() {
-  rm -f geister_perfect_information_tb \
+  rm -f geister_perfect_information_tb geister_purple_tb \
     geister_perfect_information_tb_9_10 geister_perfect_information_tb_9_10_repack_obsblk \
-    geister_perfect_information_tb.o \
+    geister_purple_tb_red2 geister_purple_tb_red2_repack \
+    geister_perfect_information_tb.o geister_purple_tb.o \
     geister_perfect_information_tb_9_10.o geister_perfect_information_tb_9_10_repack_obsblk.o \
+    geister_purple_tb_red2.o geister_purple_tb_red2_repack.o \
     geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm \
     geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o
 }
@@ -418,6 +420,7 @@ build_runtime() {
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_tb_handler.cxx -o geister_tb_handler.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_random_player.cxx -o geister_random_player.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_proven_escape.cxx -o geister_proven_escape.pcm
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_purple_winning.cxx -o geister_purple_winning.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile confident_player.cxx -o confident_player.pcm
 
   # 2) Compile object files from the ORIGINAL sources (NOT from .pcm)
@@ -430,6 +433,7 @@ build_runtime() {
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_tb_handler.cxx -o geister_tb_handler.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_random_player.cxx -o geister_random_player.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_proven_escape.cxx -o geister_proven_escape.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_purple_winning.cxx -o geister_purple_winning.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c confident_player.cxx -o confident_player.o
 
   # 3) Compile the stdio baseline player (imports modules via BMIs)
@@ -439,19 +443,20 @@ build_runtime() {
   run_cxx "${ldflags[@]}" \
     geister_stdio_baseline_player.o \
     geister_core.o geister_interface.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o \
-    geister_tb_handler.o geister_random_player.o geister_proven_escape.o confident_player.o \
+    geister_tb_handler.o geister_random_player.o geister_proven_escape.o geister_purple_winning.o confident_player.o \
     "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
     -o geister_stdio_baseline_player
 
   rm -f \
     geister_stdio_baseline_player.o \
     geister_core.pcm geister_interface.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm \
-    geister_tb_handler.pcm geister_random_player.pcm geister_proven_escape.pcm confident_player.pcm \
+    geister_tb_handler.pcm geister_random_player.pcm geister_proven_escape.pcm geister_purple_winning.pcm confident_player.pcm \
     geister_core.o geister_interface.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o \
-    geister_tb_handler.o geister_random_player.o geister_proven_escape.o confident_player.o
+    geister_tb_handler.o geister_random_player.o geister_proven_escape.o geister_purple_winning.o confident_player.o
 }
 
 build_tests() {
+  ensure_seekable_zstd
   clean_test_artifacts
 
   local -a warnflags=(-Wall -Wextra -Wpedantic -Wunused-variable)
@@ -463,24 +468,34 @@ build_tests() {
   run_cxx "${cxxflags[@]}" -x c++-module --precompile geister_core.cxx -o geister_core.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_rank.cxx -o geister_rank.pcm
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_rank_triplet.cxx -o geister_rank_triplet.pcm
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_rank_obsblk.cxx -o geister_rank_obsblk.pcm
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile tablebase_io.cxx -o tablebase_io.pcm
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -x c++-module --precompile geister_tb_handler.cxx -o geister_tb_handler.pcm
 
   # 2) Compile object files from the ORIGINAL sources (NOT from .pcm)
   run_cxx "${cxxflags[@]}" -c geister_core.cxx -o geister_core.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_rank.cxx -o geister_rank.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_rank_triplet.cxx -o geister_rank_triplet.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_rank_obsblk.cxx -o geister_rank_obsblk.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c tablebase_io.cxx -o tablebase_io.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_tb_handler.cxx -o geister_tb_handler.o
 
   # 3) Compile the blackbox tests (imports modules via BMIs)
-  run_cxx "${cxxflags[@]}" "${mpath[@]}" -DGEISTER_ENABLE_TRIPLET_RANK_TESTS -c geister_blackbox_tests.cpp -o geister_blackbox_tests.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" \
+    -DGEISTER_ENABLE_TRIPLET_RANK_TESTS \
+    -DGEISTER_ENABLE_PURPLE_TB_TESTS \
+    -c geister_blackbox_tests.cpp -o geister_blackbox_tests.o
 
   # 4) Link
   run_cxx "${ldflags[@]}" \
-    geister_core.o geister_rank.o geister_rank_triplet.o geister_blackbox_tests.o \
+    geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_tb_handler.o geister_blackbox_tests.o \
+    "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
     -o geister_blackbox_tests
 
   rm -f \
     geister_blackbox_tests.o \
-    geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm \
-    geister_core.o geister_rank.o geister_rank_triplet.o
+    geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm geister_tb_handler.pcm \
+    geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_tb_handler.o
 }
 
 build_builders() {
@@ -494,8 +509,8 @@ build_builders() {
   fi
 
   local -a warnflags=(-Wall -Wextra -Wpedantic -Wunused-variable)
-  local -a cxxflags=(-std=c++20 -O3 -DNDEBUG "${warnflags[@]}" "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}" "${OMP_COMPILE_FLAGS[@]}")
-  local -a ldflags=(-std=c++20 -O3 -DNDEBUG "${ARCH_FLAGS[@]}" "${LTO_LINK_FLAGS[@]}" "${OMP_LINK_FLAGS[@]}")
+  local -a cxxflags=(-std=c++20 -O3 -DNDEBUG "${warnflags[@]}" "${ARCH_FLAGS[@]}" "${LTO_COMPILE_FLAGS[@]}" "${OMP_COMPILE_FLAGS[@]}" -pthread)
+  local -a ldflags=(-std=c++20 -O3 -DNDEBUG "${ARCH_FLAGS[@]}" "${LTO_LINK_FLAGS[@]}" "${OMP_LINK_FLAGS[@]}" -pthread)
   local -a mpath=(-fprebuilt-module-path=.)
 
   # 1) Precompile module interfaces -> .pcm (BMI)
@@ -514,14 +529,22 @@ build_builders() {
 
   # 3) Compile builder translation units (imports modules via BMIs)
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_perfect_information_tb.cpp -o geister_perfect_information_tb.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_purple_tb.cpp -o geister_purple_tb.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_perfect_information_tb_9_10.cpp -o geister_perfect_information_tb_9_10.o
   run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_perfect_information_tb_9_10_repack_obsblk.cpp -o geister_perfect_information_tb_9_10_repack_obsblk.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_purple_tb_red2.cpp -o geister_purple_tb_red2.o
+  run_cxx "${cxxflags[@]}" "${mpath[@]}" -c geister_purple_tb_red2_repack.cpp -o geister_purple_tb_red2_repack.o
 
   # 4) Link
   run_cxx "${ldflags[@]}" \
     geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_perfect_information_tb.o \
     "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
     -o geister_perfect_information_tb
+
+  run_cxx "${ldflags[@]}" \
+    geister_core.o geister_rank.o geister_rank_triplet.o tablebase_io.o geister_purple_tb.o \
+    "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
+    -o geister_purple_tb
 
   run_cxx "${ldflags[@]}" \
     geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o geister_perfect_information_tb_9_10.o \
@@ -533,9 +556,20 @@ build_builders() {
     "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
     -o geister_perfect_information_tb_9_10_repack_obsblk
 
+  run_cxx "${ldflags[@]}" \
+    geister_core.o geister_rank.o geister_rank_triplet.o tablebase_io.o geister_purple_tb_red2.o \
+    "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
+    -o geister_purple_tb_red2
+
+  run_cxx "${ldflags[@]}" \
+    geister_core.o geister_rank.o geister_rank_triplet.o geister_purple_tb_red2_repack.o \
+    "${SEEK_OBJ}" "${ZSTD_STATIC_LIB}" \
+    -o geister_purple_tb_red2_repack
+
   rm -f \
-    geister_perfect_information_tb.o \
+    geister_perfect_information_tb.o geister_purple_tb.o \
     geister_perfect_information_tb_9_10.o geister_perfect_information_tb_9_10_repack_obsblk.o \
+    geister_purple_tb_red2.o geister_purple_tb_red2_repack.o \
     geister_core.pcm geister_rank.pcm geister_rank_triplet.pcm geister_rank_obsblk.pcm tablebase_io.pcm \
     geister_core.o geister_rank.o geister_rank_triplet.o geister_rank_obsblk.o tablebase_io.o
 }

@@ -15,6 +15,7 @@ import geister_core;
 import geister_interface;
 import geister_random_player;
 import geister_proven_escape;
+import geister_purple_winning;
 import confident_player;
 import geister_tb_handler;
 
@@ -209,6 +210,16 @@ struct parsed_turn {
 		seed))
 	{
 		return format_protocol_move(st, *proven);
+	}
+
+	if (const auto purple = purple_winning_move(
+		st.obs.bb_my_blue,
+		st.obs.bb_my_red,
+		st.obs.bb_opponent_unknown,
+		static_cast<int>(st.obs.pop_captured_opponent_red),
+		seed))
+	{
+		return format_protocol_move(st, *purple);
 	}
 
 	if (const auto best = confident_player(

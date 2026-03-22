@@ -12,20 +12,33 @@ Build/run order encoded by this script:
   1) <=8 perfect-information TBs            (geister_perfect_information_tb)
   2) 9/10 perfect-information partitioned   (geister_perfect_information_tb_9_10)
   3) 9/10 perfect obsblk repack             (geister_perfect_information_tb_9_10_repack_obsblk)
-  4) compress generated *.bin -> *.bin.zst  (optional)
+  4) <=8 purple TBs                         (geister_purple_tb)
+  5) red2 purple p9a partitions             (geister_purple_tb_red2 --only p9a)
+  6) red2 purple p9b partitions             (geister_purple_tb_red2 --only p9b)
+  7) red2 purple p10 partitions             (geister_purple_tb_red2 --only p10)
+  8) red2 purple N-side repack              (geister_purple_tb_red2_repack --turn N)
+  9) compress generated *.bin -> *.bin.zst  (optional)
 
 Important:
   - This script runs geister_blackbox_tests first and aborts immediately on failure.
-  - This script always builds <=8 up to total=8, because the 9/10 perfect builder depends on <=8 tables.
+  - This script always builds <=8 perfect tables and purple totals 3..8, because
+    the 9/10 perfect builder depends on <=8 perfect tables and the red2 purple
+    builder depends on the legacy <=8 purple tables.
   - geister_perfect_information_tb is run with --no-write-txt, so normal output is *_obsblk.bin only.
   - geister_perfect_information_tb_9_10 consumes <=8 *_obsblk.bin directly
     (legacy headerless .bin is also accepted as a fallback).
+  - geister_purple_tb has no --out-dir flag; this pipeline runs it inside OUT_DIR so the
+    legacy tb_purple_{N,P}_*.txt and tb_purple_{N,P}_*.bin files land there.
+  - Runtime-relevant red2 purple outputs are repacked as single-file tb_purple_N_*.bin only;
+    tb_purple_P_* and partition files remain builder-internal / intermediate forms.
 
 Options:
   --repo-dir DIR             Repo/build directory containing the built binaries (default: current dir)
   --out-dir DIR              Output directory for generated tables (default: ./tb_out)
   --perfect-dep-dir DIR      Directory containing <=8 perfect *_obsblk.bin deps for 9/10 perfect build
                              (legacy headerless .bin also accepted; default: same as --out-dir)
+  --purple-red2-stage DIR    Staging directory used by geister_purple_tb_red2_repack
+                             (default: OUT_DIR/.tb_purple_red2_stage)
   --max-depth N              DTW horizon / final iteration number (default: 210)
   --compress                 Attempt final compression (default; auto-skips if helper is unavailable)
   --no-compress              Skip final compression
@@ -97,6 +110,7 @@ resolve_exec_path() {
 REPO_DIR="$(pwd -P)"
 OUT_DIR="$(pwd -P)/tb_out"
 PERFECT_DEP_DIR=""
+PURPLE_RED2_STAGE_DIR=""
 MAX_DEPTH=210
 DO_COMPRESS=1
 COMPRESS_REQUIRED=0
@@ -126,6 +140,10 @@ while [[ $# -gt 0 ]]; do
     --max-depth)
       shift; [[ $# -gt 0 ]] || die "missing value for --max-depth"
       MAX_DEPTH="$1"
+      ;;
+    --purple-red2-stage)
+      shift; [[ $# -gt 0 ]] || die "missing value for --purple-red2-stage"
+      PURPLE_RED2_STAGE_DIR="$(abspath "$1")"
       ;;
     --compress)
       DO_COMPRESS=1
@@ -183,6 +201,10 @@ if [[ -z "$PERFECT_DEP_DIR" ]]; then
 fi
 [[ -d "$PERFECT_DEP_DIR" ]] || die "perfect dep dir not found: $PERFECT_DEP_DIR"
 
+if [[ -z "$PURPLE_RED2_STAGE_DIR" ]]; then
+  PURPLE_RED2_STAGE_DIR="$OUT_DIR/.tb_purple_red2_stage"
+fi
+
 case "$MAX_DEPTH" in
   ''|*[!0-9]*) die "--max-depth must be a positive integer" ;;
 esac
@@ -226,11 +248,17 @@ BLACKBOX_TESTS_BIN="$REPO_DIR/geister_blackbox_tests"
 PERFECT_LE8_BIN="$REPO_DIR/geister_perfect_information_tb"
 PERFECT_9_10_BIN="$REPO_DIR/geister_perfect_information_tb_9_10"
 PERFECT_9_10_REPACK_BIN="$REPO_DIR/geister_perfect_information_tb_9_10_repack_obsblk"
+PURPLE_LE8_BIN="$REPO_DIR/geister_purple_tb"
+PURPLE_RED2_BIN="$REPO_DIR/geister_purple_tb_red2"
+PURPLE_RED2_REPACK_BIN="$REPO_DIR/geister_purple_tb_red2_repack"
 
 need_exec "$BLACKBOX_TESTS_BIN"
 need_exec "$PERFECT_LE8_BIN"
 need_exec "$PERFECT_9_10_BIN"
 need_exec "$PERFECT_9_10_REPACK_BIN"
+need_exec "$PURPLE_LE8_BIN"
+need_exec "$PURPLE_RED2_BIN"
+need_exec "$PURPLE_RED2_REPACK_BIN"
 
 has_glob_match() {
   local pattern="$1"
@@ -430,6 +458,7 @@ compress_bins_tree() {
 log "repo_dir=$REPO_DIR"
 log "out_dir=$OUT_DIR"
 log "perfect_dep_dir=$PERFECT_DEP_DIR"
+log "purple_red2_stage_dir=$PURPLE_RED2_STAGE_DIR"
 log "max_depth=$MAX_DEPTH"
 
 # 0) Run blackbox tests first.
@@ -447,7 +476,21 @@ run_cmd "$PERFECT_9_10_BIN" --out "$OUT_DIR" --dep "$PERFECT_DEP_DIR" --max-dept
 # 3) Repack 9/10 perfect partitioned output into runtime *_obsblk.bin files.
 run_cmd "$PERFECT_9_10_REPACK_BIN" --in "$OUT_DIR" --out "$OUT_DIR" --iter "$MAX_DEPTH"
 
-# 4) Optional final compression of generated raw *.bin files.
+# 4) <=8 purple TBs (all meaningful totals 3..8).
+# geister_purple_tb has no --out-dir; it writes to cwd.
+run_cmd_in_dir "$OUT_DIR" "$PURPLE_LE8_BIN" --total-min 3 --total-max 8
+
+# 5) red2 purple TB partitions.
+# p9a / p9b depend on <=8 purple legacy tb_purple_{N,P}_*.bin in OUT_DIR.
+run_cmd "$PURPLE_RED2_BIN" --out-dir "$OUT_DIR" --dep-dir "$OUT_DIR" --max-depth "$MAX_DEPTH" --only p9a
+run_cmd "$PURPLE_RED2_BIN" --out-dir "$OUT_DIR" --dep-dir "$OUT_DIR" --max-depth "$MAX_DEPTH" --only p9b
+# p10 additionally depends on the completed p9b iteration from the same out-dir.
+run_cmd "$PURPLE_RED2_BIN" --out-dir "$OUT_DIR" --dep-dir "$OUT_DIR" --max-depth "$MAX_DEPTH" --only p10 --dep-p9b-iter "$MAX_DEPTH"
+
+# 8) Repack red2 purple partitioned output into runtime single-file tb_purple_N_*.bin.
+run_cmd "$PURPLE_RED2_REPACK_BIN" --in "$OUT_DIR" --out "$OUT_DIR" --iter "$MAX_DEPTH" --turn N --stage "$PURPLE_RED2_STAGE_DIR"
+
+# 9) Optional final compression of generated raw *.bin files.
 if (( DO_COMPRESS )); then
   if has_raw_bins; then
     if COMPRESSOR_BIN_REAL="$(maybe_prepare_compressor)"; then
